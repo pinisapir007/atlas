@@ -4,6 +4,7 @@ from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Decision
+from atlas.brain.provider_ranking import rank_providers
 
 # "Every recommendation must be based on real evidence collected from
 # multiple independent sources" — a Decision Engine policy threshold (a
@@ -82,6 +83,7 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
         "independent_sources": len(sourced),
     }
     risks = explain_opportunity(category, knowledge, memory, kpis)["risks"]
+    chosen_provider = None  # only ever set on an "invest" verdict, below
 
     if len(sourced) < MIN_INDEPENDENT_SOURCES:
         verdict = "insufficient_evidence"
@@ -121,9 +123,25 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
             if paused_goals
             else ""
         )
+
+        # Which platform ATLAS would actually use for this investment —
+        # ranked by real evidence, requiring no credential (ranking is
+        # free; only *operating* a chosen provider ever needs one). No
+        # eligible provider registered is a real, separate fact from "this
+        # category isn't worth pursuing" — surfaced honestly, not silently
+        # dropped.
+        provider_rankings = rank_providers(category, knowledge)
+        chosen_provider = provider_rankings[0]["provider"] if provider_rankings else None
+        context["provider_ranking"] = provider_rankings
+        provider_note = (
+            f" — chosen provider: {chosen_provider} (ranked #1 of {len(provider_rankings)})"
+            if chosen_provider
+            else " — no registered provider for this category yet; execution will need one before it can operate for real"
+        )
+
         reasoning = (
             f"'{category}' has {len(sourced)} independently-sourced findings, a real execution channel, "
-            f"and no active commitment — {confidence_note}{history_note}"
+            f"and no active commitment — {confidence_note}{history_note}{provider_note}"
         )
 
     return Decision(
@@ -135,6 +153,7 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
         context=context,
         risks=risks,
         reasoning=reasoning,
+        chosen_provider=chosen_provider,
     )
 
 

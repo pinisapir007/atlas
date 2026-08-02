@@ -46,6 +46,53 @@ def test_invest_verdict_for_channel_ready_unclaimed_category(tmp_path):
     assert decision.confidence is not None
 
 
+def test_invest_verdict_names_the_chosen_provider_when_one_is_registered(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(_sourced_finding("affiliate", 1))
+    kb.save_finding(_sourced_finding("affiliate", 2))
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    decision = decide("affiliate", kb, memory, kpis)
+
+    assert decision.verdict == "invest"
+    assert decision.chosen_provider == "digistore24"
+    assert "digistore24" in decision.reasoning
+    assert len(decision.context["provider_ranking"]) == 1
+    assert decision.context["provider_ranking"][0]["provider"] == "digistore24"
+
+
+def test_invest_verdict_has_no_chosen_provider_when_none_is_registered(tmp_path):
+    # digital_product has a real dispatchable channel but no registered
+    # CommerceProvider yet — a real, honest gap distinct from "category not
+    # worth pursuing".
+    kb = _kb(tmp_path)
+    kb.save_finding(_sourced_finding("digital_product", 1))
+    kb.save_finding(_sourced_finding("digital_product", 2))
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    decision = decide("digital_product", kb, memory, kpis)
+
+    assert decision.verdict == "invest"
+    assert decision.chosen_provider is None
+    assert decision.context["provider_ranking"] == []
+    assert "no registered provider" in decision.reasoning
+
+
+def test_non_invest_verdicts_never_set_chosen_provider(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(_sourced_finding("affiliate", 1))  # only 1 source -> insufficient_evidence
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    decision = decide("affiliate", kb, memory, kpis)
+
+    assert decision.verdict == "insufficient_evidence"
+    assert decision.chosen_provider is None
+    assert "provider_ranking" not in decision.context
+
+
 def test_already_invested_when_a_real_goal_already_pursues_the_category(tmp_path):
     kb = _kb(tmp_path)
     kb.save_finding(_sourced_finding("affiliate", 1))

@@ -137,6 +137,14 @@ class Decision:
     reasoning: str = ""
     goal_id: str | None = None  # set only when verdict == "invest" or "propose_capability" and a Goal was created
     superseded_id: str | None = None  # the prior Decision for this category this one reopens/replaces, if any
+    # Which registered CommerceProvider ATLAS would use for this category,
+    # per rank_providers() — set only on an "invest" verdict with at least
+    # one eligible provider. None either because the verdict isn't "invest",
+    # or because no provider is registered for this category yet (a
+    # capability gap, not a ranking failure). provider_ranking (in context)
+    # carries the full comparison, not just the winner — so a Decision
+    # shows what else was considered, not only what was chosen.
+    chosen_provider: str | None = None
     id: str = field(default_factory=lambda: new_id("decision"))
     created_at: str = field(default_factory=now)
 

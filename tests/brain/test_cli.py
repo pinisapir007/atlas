@@ -211,6 +211,22 @@ def test_decisions_list_and_show_after_a_real_tick(tmp_path, monkeypatch, capsys
     assert "Risks:" in show_out
     assert "Goal created:" in show_out
     assert "(none — first decision for this category)" in show_out
+    assert "Chosen provider: (none)" in show_out  # digital_product has a channel but no registered provider yet
+
+
+def test_decisions_show_names_the_real_chosen_provider_for_affiliate(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["brain", "finding", "add", "research", "affiliate", "signal 1", "--evidence", "https://example.com/1"])
+    capsys.readouterr()
+    main(["brain", "finding", "add", "research", "affiliate", "signal 2", "--evidence", "https://example.com/2"])
+    capsys.readouterr()
+
+    main(["brain", "tick"])
+    capsys.readouterr()
+
+    main(["brain", "decisions", "show", "affiliate"])
+    show_out = capsys.readouterr().out
+    assert "Chosen provider: digistore24" in show_out
 
 
 def test_opportunities_explain_shows_evidence_roi_risks_and_rank_reason(tmp_path, monkeypatch, capsys):

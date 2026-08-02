@@ -423,6 +423,7 @@ def _print_decision(decision) -> None:
     print(f"=== Decision {decision.id} — {decision.category} ===")
     print(f"Verdict: {decision.verdict}")
     print(f"Confidence: {confidence}")
+    print(f"Chosen provider: {decision.chosen_provider or '(none)'}")
     print(f"Reasoning: {decision.reasoning}")
     print(f"Context: {decision.context}")
     print(f"Evidence cited ({len(decision.evidence_finding_ids)} finding(s)): {', '.join(decision.evidence_finding_ids) or '(none)'}")
