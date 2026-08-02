@@ -93,6 +93,54 @@ def test_risks_flag_no_dispatchable_channel_for_youtube_and_ugc(tmp_path):
     assert any("no dispatchable execution channel" in r for r in result["risks"])
 
 
+def test_risks_flag_placeholder_channel_for_digital_product(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(Finding(source="research", category="digital_product", description="x", evidence="https://example.com"))
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    result = explain_opportunity("digital_product", kb, memory, kpis)
+
+    assert any("hardcoded placeholder" in r for r in result["risks"])
+
+
+def test_risks_flag_placeholder_channel_for_content(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(Finding(source="research", category="content", description="x", evidence="https://example.com"))
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    result = explain_opportunity("content", kb, memory, kpis)
+
+    assert any("hardcoded placeholder" in r for r in result["risks"])
+
+
+def test_risks_do_not_flag_placeholder_for_affiliate_real_chain(tmp_path):
+    # affiliate's bootstrap target is affiliate_pipeline (the real
+    # affiliate_department chain), not revenue_affiliate (which is itself
+    # a placeholder) — must not be flagged just because a placeholder
+    # exists somewhere in the broader category's task-category family.
+    kb = _kb(tmp_path)
+    kb.save_finding(Finding(source="research", category="affiliate", description="x", evidence="https://example.com"))
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    result = explain_opportunity("affiliate", kb, memory, kpis)
+
+    assert not any("hardcoded placeholder" in r for r in result["risks"])
+
+
+def test_risks_do_not_flag_placeholder_for_recruitment_real_channel(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(Finding(source="research", category="recruitment", description="x", evidence="https://example.com"))
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    result = explain_opportunity("recruitment", kb, memory, kpis)
+
+    assert not any("hardcoded placeholder" in r for r in result["risks"])
+
+
 def test_risks_flag_no_measured_outcomes_when_none_exist(tmp_path):
     kb = _kb(tmp_path)
     kb.save_finding(Finding(source="research", category="affiliate", description="x", evidence="https://example.com"))

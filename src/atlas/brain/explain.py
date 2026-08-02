@@ -1,5 +1,11 @@
 from atlas.brain.cashflow import roi
-from atlas.brain.confidence import CATEGORY_TASK_CATEGORIES, confidence_score, goals_touching_category
+from atlas.brain.confidence import (
+    BOOTSTRAP_TASK_CATEGORY,
+    CATEGORY_TASK_CATEGORIES,
+    PLACEHOLDER_TASK_CATEGORIES,
+    confidence_score,
+    goals_touching_category,
+)
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.memory import BrainMemory
@@ -70,6 +76,12 @@ def _assess_risks(category: str, confidence_result: dict, expected_roi: float | 
     risks = []
     if not CATEGORY_TASK_CATEGORIES.get(category):
         risks.append(f"no dispatchable execution channel exists for '{category}' yet — cannot actually execute this today")
+    elif BOOTSTRAP_TASK_CATEGORY.get(category) in PLACEHOLDER_TASK_CATEGORIES:
+        risks.append(
+            f"the real execution channel for '{category}' is a hardcoded placeholder that always returns zero "
+            "revenue — a dispatched task will show status=done, but cannot produce real revenue until a real "
+            "integration is built, regardless of confidence score"
+        )
     if confidence_result["factors"]["measured_outcomes"] is None:
         risks.append("no real measured revenue/cost exists for this category — confidence rests on research, not results")
     if confidence_result["factors"]["historical_success"] is None:

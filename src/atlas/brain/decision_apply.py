@@ -1,15 +1,5 @@
+from atlas.brain.confidence import BOOTSTRAP_TASK_CATEGORY
 from atlas.brain.models import Decision, Goal, Task
-
-# Which real, dispatchable Task category actually bootstraps each channel's
-# existing pipeline — a channel-ready category gets exactly one such entry.
-# Sourced from the same real manifest.toml categories as
-# confidence.CATEGORY_TASK_CATEGORIES, not guessed.
-_BOOTSTRAP_TASK_CATEGORY = {
-    "affiliate": "affiliate_pipeline",
-    "digital_product": "revenue_digital_product",
-    "content": "revenue_content_assets",
-    "recruitment": "revenue_recruitment_leads",
-}
 
 
 def apply_decision(decision: Decision) -> tuple[Goal | None, Task | None]:
@@ -48,7 +38,7 @@ def apply_decision(decision: Decision) -> tuple[Goal | None, Task | None]:
         task = Task(
             goal_id=goal.id,
             description=f"Bootstrap {decision.category} pipeline from Intelligence findings",
-            category=_BOOTSTRAP_TASK_CATEGORY[decision.category],
+            category=BOOTSTRAP_TASK_CATEGORY[decision.category],
             reversible=True,
         )
     else:  # propose_capability

@@ -47,6 +47,35 @@ CATEGORY_TASK_CATEGORIES: dict[str, set[str]] = {
     "ugc": set(),
 }
 
+# Which real, dispatchable Task category actually bootstraps a fresh
+# auto-promotion for each channel-ready category — one entry per category,
+# the specific dispatch target Decision Engine investment uses (moved here
+# from decision_apply.py so confidence.py stays the one place that owns
+# "what a category's real execution capability actually is", rather than
+# this knowledge existing in two files).
+BOOTSTRAP_TASK_CATEGORY = {
+    "affiliate": "affiliate_pipeline",
+    "digital_product": "revenue_digital_product",
+    "content": "revenue_content_assets",
+    "recruitment": "revenue_recruitment_leads",
+}
+
+# Real, dispatchable Task categories whose executor is a hardcoded
+# placeholder today — grepped from the actual channel source
+# (revenue/channels/{affiliate,digital_products,content_assets}.py all
+# literally always return revenue_generated: 0.0, "Execution is a
+# placeholder pending a real ... integration"), not guessed.
+# "channel_ready" (a real Task category exists, something will dispatch
+# and mark itself done) is a different claim from "this channel can ever
+# produce real revenue as currently built" — this is what keeps the two
+# from being silently conflated into false confidence. Note
+# BOOTSTRAP_TASK_CATEGORY never actually points "affiliate" at
+# "revenue_affiliate" (it targets the real affiliate_department chain via
+# "affiliate_pipeline" instead) — revenue_affiliate is listed here for
+# completeness of what's real vs. placeholder, not because auto-promotion
+# ever dispatches to it.
+PLACEHOLDER_TASK_CATEGORIES = {"revenue_affiliate", "revenue_digital_product", "revenue_content_assets"}
+
 
 def goals_touching_category(category: str, memory: BrainMemory) -> list[Goal]:
     task_categories = CATEGORY_TASK_CATEGORIES.get(category, set())
