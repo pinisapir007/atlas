@@ -148,6 +148,37 @@ def test_report_shows_reallocations_section(tmp_path, monkeypatch, capsys):
     assert "priority 3->1" in out or "priority 3->2" in out
 
 
+def test_opportunities_ranks_categories_by_confidence_descending(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    # affiliate: 3 real sourced findings (source_corroboration + recency both
+    # available). ugc: 1 unsourced finding (source_corroboration stays None,
+    # since there's no evidence) — fewer factors available, so it must rank
+    # below affiliate even though a bare recency score alone could tie.
+    for i in range(3):
+        main(["brain", "finding", "add", "research", "affiliate", f"real affiliate signal {i}", "--evidence", f"https://example.com/{i}"])
+        capsys.readouterr()
+    main(["brain", "finding", "add", "research", "ugc", "an idea with no source yet"])
+    capsys.readouterr()
+
+    main(["brain", "opportunities"])
+    out = capsys.readouterr().out
+    lines = [line for line in out.strip().splitlines() if line]
+
+    assert lines[0].startswith("affiliate\t")
+    assert "factors=2/6" in lines[0]
+    assert lines[1].startswith("ugc\t")
+    assert "factors=1/6" in lines[1]
+
+
+def test_opportunities_with_no_findings_prints_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    main(["brain", "opportunities"])
+    out = capsys.readouterr().out
+
+    assert out.strip() == ""
+
+
 def test_finding_add_and_list_round_trip(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(
