@@ -52,3 +52,48 @@ def test_non_reallocation_log_entries_are_ignored(tmp_path):
     report = Reporter().summarize("daily", memory, KPIRegistry(memory))
 
     assert report["reallocations"] == []
+
+
+def test_cash_flow_includes_goals_with_revenue_or_cost_measured(tmp_path):
+    memory = BrainMemory(tmp_path / "brain.json")
+    goal = Goal(description="grow")
+    memory.save_goal(goal)
+    kpis = KPIRegistry(memory)
+    kpis.record(f"revenue_{goal.id}", 1000.0)
+    kpis.record(f"cost_{goal.id}", 400.0)
+
+    report = Reporter().summarize("daily", memory, kpis)
+
+    assert len(report["cash_flow"]) == 1
+    entry = report["cash_flow"][0]
+    assert entry["goal_id"] == goal.id
+    assert entry["revenue"] == 1000.0
+    assert entry["cost"] == 400.0
+    assert entry["profit"] == 600.0
+    assert entry["roi"] == 1.5
+
+
+def test_cash_flow_excludes_goals_with_no_revenue_or_cost(tmp_path):
+    memory = BrainMemory(tmp_path / "brain.json")
+    memory.save_goal(Goal(description="not yet measured"))
+
+    report = Reporter().summarize("daily", memory, KPIRegistry(memory))
+
+    assert report["cash_flow"] == []
+
+
+def test_cash_flow_includes_partial_data_with_none_profit(tmp_path):
+    memory = BrainMemory(tmp_path / "brain.json")
+    goal = Goal(description="revenue only, no cost tracked yet")
+    memory.save_goal(goal)
+    kpis = KPIRegistry(memory)
+    kpis.record(f"revenue_{goal.id}", 500.0)
+
+    report = Reporter().summarize("daily", memory, kpis)
+
+    assert len(report["cash_flow"]) == 1
+    entry = report["cash_flow"][0]
+    assert entry["revenue"] == 500.0
+    assert entry["cost"] is None
+    assert entry["profit"] is None
+    assert entry["roi"] is None

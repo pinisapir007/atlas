@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+from atlas.brain.cashflow import profit, roi
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.memory import BrainMemory
 
@@ -50,6 +51,18 @@ class Reporter:
                 if p.status != "rejected"
             ],
             "kpi_deltas": {name: kpis.delta(name, since) for name in kpis.names()},
+            "cash_flow": [
+                {
+                    "goal_id": g.id,
+                    "description": g.description,
+                    "revenue": kpis.latest(f"revenue_{g.id}"),
+                    "cost": kpis.latest(f"cost_{g.id}"),
+                    "profit": profit(g, kpis),
+                    "roi": roi(g, kpis),
+                }
+                for g in goals
+                if kpis.latest(f"revenue_{g.id}") is not None or kpis.latest(f"cost_{g.id}") is not None
+            ],
             "reallocations": [
                 {
                     "goal_id": entry["goal_id"],

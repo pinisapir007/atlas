@@ -347,6 +347,12 @@ def _print_report(report: dict) -> None:
     for item in report["open_proposals"]:
         print(f"  - [{item['kind']}/{item['status']}] {item['rationale']} ({item['id']})")
     print(f"KPI deltas: {report['kpi_deltas']}")
+    print("Cash flow:")
+    for item in report["cash_flow"]:
+        print(
+            f"  - {item['description']}: revenue={item['revenue']} cost={item['cost']} "
+            f"profit={item['profit']} roi={item['roi']} ({item['goal_id']})"
+        )
     print("Reallocations:")
     for item in report["reallocations"]:
         print(
