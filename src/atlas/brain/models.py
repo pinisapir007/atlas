@@ -77,6 +77,25 @@ class Task:
 
 
 @dataclass
+class Finding:
+    """One durable record of something ATLAS's Intelligence layer learned
+    exists in the world — a candidate opportunity, market signal, or
+    business-model pattern — kept regardless of whether it ever becomes a
+    Task. category is an open string (affiliate, digital_product, youtube,
+    ugc, recruitment, content, ...), the same convention Task.category
+    already uses, so a channel that has no dispatchable asset yet is still
+    recorded honestly rather than dropped. evidence is a real URL/citation
+    when one exists and "" otherwise — never a fabricated source."""
+
+    source: str
+    category: str
+    description: str
+    evidence: str = ""
+    id: str = field(default_factory=lambda: new_id("finding"))
+    created_at: str = field(default_factory=now)
+
+
+@dataclass
 class Proposal:
     """A structural decision ATLAS wants to make but cannot execute itself:
     creating an asset, recruiting an agent, or redesigning part of the
