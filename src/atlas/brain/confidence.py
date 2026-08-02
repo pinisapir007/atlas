@@ -85,24 +85,42 @@ def goals_touching_category(category: str, memory: BrainMemory) -> list[Goal]:
     return [g for g in memory.goals() if g.id in goal_ids]
 
 
-def source_corroboration_score(category: str, knowledge: KnowledgeBase) -> float | None:
+def source_corroboration_score(category: str, knowledge: KnowledgeBase, provider: str | None = None) -> float | None:
     """Factors 1+2 (number and quality of independent sources, source
     reliability) combined: v1 reliability is deliberately binary — a
     finding either carries a real evidence URL or it doesn't. A per-domain
     trust table would itself be an unverified judgment call dressed as
     evidence; not built here. Saturates at SOURCE_SATURATION_SAMPLE
-    independently-sourced findings in this category."""
-    sourced = [f for f in knowledge.findings() if f.category == category and f.evidence]
+    independently-sourced findings in this category.
+
+    `provider`, when given, scopes to findings tagged to that specific
+    platform (Finding.provider) rather than every finding in the category —
+    the mechanism provider_ranking.py uses to compare platforms within a
+    category. Deliberately an exact match, never falling back to
+    category-general findings: mixing "affiliate marketing pays well
+    generally" into a Digistore24-vs-ShareASale comparison would blur the
+    exact distinction this scoping exists to make.
+    """
+    sourced = [
+        f
+        for f in knowledge.findings()
+        if f.category == category and f.evidence and (provider is None or f.provider == provider)
+    ]
     if not sourced:
         return None
     return min(len(sourced) / SOURCE_SATURATION_SAMPLE, 1.0)
 
 
-def recency_score(category: str, knowledge: KnowledgeBase) -> float | None:
+def recency_score(category: str, knowledge: KnowledgeBase, provider: str | None = None) -> float | None:
     """Factor 3. Average freshness of this category's findings — a category
     with only stale findings scores low (real signal), a category with no
-    findings at all scores None (no signal, not a false zero)."""
-    findings = [f for f in knowledge.findings() if f.category == category]
+    findings at all scores None (no signal, not a false zero). `provider`
+    scopes the same way as source_corroboration_score() — see there."""
+    findings = [
+        f
+        for f in knowledge.findings()
+        if f.category == category and (provider is None or f.provider == provider)
+    ]
     if not findings:
         return None
     now = datetime.now(timezone.utc)

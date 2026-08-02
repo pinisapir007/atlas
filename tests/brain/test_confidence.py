@@ -60,6 +60,29 @@ def test_source_corroboration_partial_with_two_sourced_findings(tmp_path):
     assert abs(source_corroboration_score("affiliate", kb) - (2 / 3)) < 1e-9
 
 
+def test_source_corroboration_scoped_to_a_provider_ignores_other_providers(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(
+        Finding(source="research", category="affiliate", description="digistore24 fact", evidence="https://x/1", provider="digistore24")
+    )
+    kb.save_finding(
+        Finding(source="research", category="affiliate", description="shareasale fact", evidence="https://x/2", provider="shareasale")
+    )
+
+    assert source_corroboration_score("affiliate", kb, provider="digistore24") == 1 / 3
+    assert source_corroboration_score("affiliate", kb, provider="shareasale") == 1 / 3
+
+
+def test_source_corroboration_scoped_to_a_provider_ignores_category_general_findings(tmp_path):
+    # A category-general finding ("affiliate marketing pays well") isn't
+    # evidence FOR a specific platform — mixing it in would blur the exact
+    # comparison provider-level scoping exists to make.
+    kb = _kb(tmp_path)
+    kb.save_finding(Finding(source="research", category="affiliate", description="general fact", evidence="https://x/1"))
+
+    assert source_corroboration_score("affiliate", kb, provider="digistore24") is None
+
+
 # --- recency_score -----------------------------------------------------------
 
 
