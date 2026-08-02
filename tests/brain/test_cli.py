@@ -148,6 +148,40 @@ def test_report_shows_reallocations_section(tmp_path, monkeypatch, capsys):
     assert "priority 3->1" in out or "priority 3->2" in out
 
 
+def test_finding_add_and_list_round_trip(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(
+        [
+            "brain",
+            "finding",
+            "add",
+            "research",
+            "youtube",
+            "Short-form cooking content has low competition in this niche",
+            "--evidence",
+            "https://example.com/real-source",
+        ]
+    )
+    add_out = capsys.readouterr().out
+    assert "youtube" in add_out
+
+    main(["brain", "finding", "list"])
+    list_out = capsys.readouterr().out
+    assert "youtube" in list_out
+    assert "research" in list_out
+    assert "https://example.com/real-source" in list_out
+
+
+def test_finding_add_defaults_evidence_to_empty(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["brain", "finding", "add", "founder", "digital_product", "An idea with no source yet"])
+    capsys.readouterr()
+
+    main(["brain", "finding", "list"])
+    out = capsys.readouterr().out
+    assert "An idea with no source yet" in out
+
+
 def test_affiliate_product_add_creates_a_real_discovered_opportunity(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["brain", "goal", "add", "First real affiliate income"])

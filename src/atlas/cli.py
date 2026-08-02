@@ -9,7 +9,7 @@ from atlas.assets.recruitment_workforce.agent import RecruitmentAgent
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.console import build_console_view, format_console_view
 from atlas.brain.kpi_intake import record_manual_revenue
-from atlas.brain.models import Task
+from atlas.brain.models import Finding, Task
 from atlas.core.registry import Registry, UnsupportedVerb, VERBS
 from atlas.app import run_app
 
@@ -80,6 +80,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     report_parser = brain_sub.add_parser("report", help="run a strategic review and print the executive report")
     report_parser.add_argument("--period", choices=["daily", "weekly", "monthly"], default="daily")
+
+    finding_parser = brain_sub.add_parser("finding", help="manage the Intelligence knowledge base")
+    finding_sub = finding_parser.add_subparsers(dest="finding_command", required=True)
+    finding_add = finding_sub.add_parser("add", help="record a real, sourced finding (never a fabricated one)")
+    finding_add.add_argument("source", help="who/what produced this finding, e.g. 'research' or a founder's name")
+    finding_add.add_argument("category", help="open string: affiliate, digital_product, youtube, ugc, ...")
+    finding_add.add_argument("description")
+    finding_add.add_argument("--evidence", default="", help="a real URL/citation — leave unset if there isn't one yet")
+    finding_sub.add_parser("list", help="list every recorded finding")
 
     recruitment_parser = subparsers.add_parser("recruitment", help="Recruitment/Workforce agent intake and approvals")
     recruitment_sub = recruitment_parser.add_subparsers(dest="recruitment_command", required=True)
@@ -329,6 +338,17 @@ def _cmd_brain(args: argparse.Namespace) -> None:
 
     elif cmd == "report":
         _print_report(brain.review(args.period))
+
+    elif cmd == "finding":
+        if args.finding_command == "add":
+            finding = Finding(
+                source=args.source, category=args.category, description=args.description, evidence=args.evidence
+            )
+            brain.knowledge.save_finding(finding)
+            print(f"{finding.id}\t{finding.category}\t{finding.description}")
+        else:
+            for finding in brain.knowledge.findings():
+                print(f"{finding.id}\t{finding.category}\t{finding.source}\t{finding.description}\t{finding.evidence}")
 
 
 def _print_report(report: dict) -> None:
