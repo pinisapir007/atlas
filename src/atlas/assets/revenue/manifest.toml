@@ -1,0 +1,10 @@
+id = "revenue"
+name = "Revenue"
+kind = "operational_agent"
+description = "Evaluates, selects, launches, and tracks revenue channels"
+owner = "atlas"
+tags = ["revenue", "monetization"]
+entrypoint = "atlas.assets.revenue.agent:RevenueAgent"
+
+[config]
+categories = ["revenue_affiliate", "revenue_digital_product", "revenue_content_assets"]

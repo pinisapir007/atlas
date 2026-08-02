@@ -1,0 +1,6 @@
+id = "sample-business"
+name = "Sample Business"
+kind = "business"
+description = "Fixture metadata-only asset for tests"
+owner = "test"
+tags = ["fixture"]

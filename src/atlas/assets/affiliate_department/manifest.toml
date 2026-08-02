@@ -1,0 +1,10 @@
+id = "affiliate_department"
+name = "Affiliate Department"
+kind = "operational_agent"
+description = "Discovers, evaluates, and plans affiliate marketing opportunities using placeholder data only; stops at founder approval before any real execution."
+owner = "atlas"
+tags = ["affiliate", "revenue"]
+entrypoint = "atlas.assets.affiliate_department.agent:AffiliateDepartmentAgent"
+
+[config]
+categories = ["affiliate_pipeline"]

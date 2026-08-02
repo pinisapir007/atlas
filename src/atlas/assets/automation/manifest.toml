@@ -1,0 +1,6 @@
+id = "automation"
+name = "Automation"
+kind = "operational_agent"
+description = "Automates repetitive operational workflows shared across other agents"
+owner = "atlas"
+tags = ["automation", "workflows"]

@@ -1,0 +1,10 @@
+id = "research"
+name = "Research"
+kind = "operational_agent"
+description = "Discovers demand signals, market opportunities, and business ideas"
+owner = "atlas"
+tags = ["research", "discovery"]
+entrypoint = "atlas.assets.research.agent:ResearchAgent"
+
+[config]
+categories = ["discover_opportunities"]

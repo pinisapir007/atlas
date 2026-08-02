@@ -1,0 +1,10 @@
+id = "editorial_review"
+name = "Editorial Review"
+kind = "operational_agent"
+description = "Automatically evaluates every Content Factory package (quality, originality, brand consistency, spam risk, compliance, marketing clarity, CTA quality) before it ever reaches the founder. Pass/revision-required/reject, up to two revision cycles, then abandons and notifies the founder."
+owner = "atlas"
+tags = ["affiliate", "content", "quality"]
+entrypoint = "atlas.assets.editorial_review.agent:EditorialReviewAgent"
+
+[config]
+categories = ["editorial_review"]

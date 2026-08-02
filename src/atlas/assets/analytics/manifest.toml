@@ -1,0 +1,9 @@
+id = "analytics"
+name = "Analytics"
+kind = "operational_agent"
+description = "Measures results across goals, tasks, and revenue channels, and recommends improvements"
+owner = "atlas"
+tags = ["analytics", "kpi"]
+
+[config]
+categories = ["analyze_revenue"]

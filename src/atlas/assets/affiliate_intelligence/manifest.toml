@@ -1,0 +1,10 @@
+id = "affiliate_intelligence"
+name = "Affiliate Intelligence"
+kind = "operational_agent"
+description = "Discovers, researches, and ranks affiliate opportunities using placeholder data; surfaces a ranked report and asks the founder which one to pursue."
+owner = "atlas"
+tags = ["affiliate", "intelligence"]
+entrypoint = "atlas.assets.affiliate_intelligence.agent:AffiliateIntelligenceAgent"
+
+[config]
+categories = ["affiliate_intelligence"]

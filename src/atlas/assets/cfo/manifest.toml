@@ -1,0 +1,9 @@
+id = "cfo"
+name = "CFO"
+kind = "operational_agent"
+description = "Financial control: budget allocation, spend evaluation, financial reporting"
+owner = "atlas"
+tags = ["finance", "budget"]
+
+[config]
+categories = ["reallocate_budget"]

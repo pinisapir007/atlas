@@ -1,0 +1,7 @@
+id = "sample-triggerable"
+name = "Sample Triggerable"
+kind = "agent"
+description = "Fixture agent for brain delegation/monitoring tests"
+owner = "test"
+tags = ["fixture"]
+entrypoint = "tests.fixtures.assets.triggerable_sample.agent:SampleTriggerable"

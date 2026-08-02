@@ -1,0 +1,219 @@
+from atlas.assets.publishing_gateway.models import PublishPackage
+from atlas.assets.publishing_gateway.store import PublishingQueueStore
+from atlas.brain.memory import BrainMemory
+from atlas.cli import main
+
+
+def test_bare_invocation_launches_the_full_screen_app_not_an_argparse_error(monkeypatch):
+    calls = []
+    monkeypatch.setattr("atlas.cli.run_app", lambda: calls.append(True))
+
+    exit_code = main([])
+
+    assert calls == [True]
+    assert exit_code == 0
+
+
+def test_manual_task_breakdown_and_daily_cycle(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    main(["brain", "goal", "add", "Grow revenue", "--priority", "1"])
+    goal_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    main(["brain", "task", "add", goal_id, "Identify prospects", "--category", "analyze_revenue", "--reversible"])
+    main(
+        [
+            "brain",
+            "task",
+            "add",
+            goal_id,
+            "Launch a paid campaign",
+            "--category",
+            "launch_campaign",
+            "--amount",
+            "500",
+        ]
+    )
+    capsys.readouterr()
+
+    main(["brain", "tick"])
+    tick_out = capsys.readouterr().out
+    assert "tick complete" in tick_out
+
+    main(["brain", "approvals"])
+    approvals_out = capsys.readouterr().out
+    assert "launch_campaign" in approvals_out
+
+    main(["brain", "status"])
+    status_out = capsys.readouterr().out
+    assert "Identify prospects" in status_out
+    assert "delegated" in status_out or "done" in status_out
+
+    main(["brain", "kpi", "record", "revenue", "0"])
+    capsys.readouterr()
+
+    main(["brain", "report", "--period", "daily"])
+    report_out = capsys.readouterr().out
+    assert "executive report" in report_out
+
+
+def test_task_add_rejects_unknown_goal(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    exit_code = main(["brain", "task", "add", "does-not-exist", "x"])
+    assert exit_code == 1
+    assert "no such goal" in capsys.readouterr().err
+
+
+def test_console_shows_goals_approvals_departments_and_kpis(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    main(["brain", "goal", "add", "Grow affiliate revenue", "--priority", "1"])
+    goal_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(["brain", "task", "add", goal_id, "Do something", "--category", "general", "--reversible"])
+    capsys.readouterr()
+    main(["brain", "tick"])
+    capsys.readouterr()
+    main(["brain", "kpi", "record", "revenue", "0"])
+    capsys.readouterr()
+
+    main(["console"])
+    out = capsys.readouterr().out
+
+    assert "=== ATLAS Console ===" in out
+    assert "Grow affiliate revenue" in out
+    assert "Departments:" in out
+    assert "recruitment_workforce" in out
+    assert "KPIs:" in out
+    assert "revenue = 0.0" in out
+
+
+def test_goal_add_stores_horizon_and_founder_estimate(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    main(
+        [
+            "brain",
+            "goal",
+            "add",
+            "Long-term bet",
+            "--horizon",
+            "long",
+            "--expected-revenue",
+            "5000",
+            "--scalability",
+            "0.8",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "horizon=long" in out
+    goal_id = out.strip().split("\t")[0]
+
+    goal = BrainMemory().get_goal(goal_id)
+    assert goal.horizon == "long"
+    assert goal.founder_estimate == {"expected_revenue": 5000.0, "scalability": 0.8}
+
+
+def test_goal_add_defaults_to_short_horizon_and_empty_estimate(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    main(["brain", "goal", "add", "Plain goal"])
+    out = capsys.readouterr().out
+    goal_id = out.strip().split("\t")[0]
+
+    goal = BrainMemory().get_goal(goal_id)
+    assert goal.horizon == "short"
+    assert goal.founder_estimate == {}
+
+
+def test_goal_list_shows_horizon(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["brain", "goal", "add", "Test goal", "--horizon", "long"])
+    capsys.readouterr()
+
+    main(["brain", "goal", "list"])
+    out = capsys.readouterr().out
+    assert "horizon=long" in out
+
+
+def test_report_shows_reallocations_section(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["brain", "goal", "add", "strong", "--expected-revenue", "1000"])
+    capsys.readouterr()
+    main(["brain", "goal", "add", "weak", "--expected-revenue", "100"])
+    capsys.readouterr()
+
+    main(["brain", "report", "--period", "daily"])
+    out = capsys.readouterr().out
+    assert "Reallocations:" in out
+    assert "priority 3->1" in out or "priority 3->2" in out
+
+
+def test_affiliate_product_add_creates_a_real_discovered_opportunity(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["brain", "goal", "add", "First real affiliate income"])
+    goal_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    exit_code = main(
+        [
+            "affiliate", "product", "add",
+            "--goal-id", goal_id,
+            "--name", "Real Program",
+            "--description", "A real, signed-up affiliate program",
+            "--category", "software",
+            "--commission", "30",
+            "--link", "https://www.digistore24.com/redir/123456/myaffid/",
+            "--provider", "digistore24",
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "ranked" in out
+    assert "Real Program" in out
+    assert goal_id in out
+
+
+def test_publishing_mark_published_transitions_queued_to_published(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    store = PublishingQueueStore()
+    package = PublishPackage(
+        platform="TikTok", title="t", description="d", cta="c",
+        status="QUEUED", goal_id="goal-a", tracking_link="https://real-network.example/track/abc123",
+    )
+    store.save_package(package)
+
+    exit_code = main(["publishing", "mark-published", package.id])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "PUBLISHED" in out
+    assert store.get_package(package.id).status == "PUBLISHED"
+
+
+def test_affiliate_revenue_record_accumulates_against_the_packages_goal(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    store = PublishingQueueStore()
+    package = PublishPackage(platform="TikTok", title="t", description="d", cta="c", status="PUBLISHED", goal_id="goal-a")
+    store.save_package(package)
+
+    main(["affiliate", "revenue", "record", package.id, "150", "--cost", "40"])
+    capsys.readouterr()
+    main(["affiliate", "revenue", "record", package.id, "50"])
+    capsys.readouterr()
+
+    main(["brain", "kpi", "list"])
+    out = capsys.readouterr().out
+    assert "revenue_goal-a\t200.0" in out
+    assert "cost_goal-a\t40.0" in out
+
+
+def test_affiliate_revenue_record_rejects_a_package_with_no_goal_id(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    store = PublishingQueueStore()
+    package = PublishPackage(platform="TikTok", title="t", description="d", cta="c", status="PUBLISHED", goal_id=None)
+    store.save_package(package)
+
+    exit_code = main(["affiliate", "revenue", "record", package.id, "150"])
+
+    assert exit_code == 1
+    assert "no goal_id" in capsys.readouterr().err

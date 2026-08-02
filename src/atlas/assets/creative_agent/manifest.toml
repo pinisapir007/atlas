@@ -1,0 +1,10 @@
+id = "creative_agent"
+name = "Creative Agent"
+kind = "operational_agent"
+description = "Drafts a creative brief (shot list / composition) for each founder-approved campaign, and records real founder-supplied image/short-video assets. No real image/video generation happens here yet -- Publishing Gateway refuses to queue a campaign without a real asset attached."
+owner = "atlas"
+tags = ["affiliate", "content", "creative"]
+entrypoint = "atlas.assets.creative_agent.agent:CreativeAgent"
+
+[config]
+categories = ["creative_agent"]

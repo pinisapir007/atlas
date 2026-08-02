@@ -1,0 +1,9 @@
+id = "marketing"
+name = "Marketing"
+kind = "operational_agent"
+description = "Creates campaigns, content, funnels, and launch assets to promote what Revenue and its channels produce"
+owner = "atlas"
+tags = ["marketing", "campaigns"]
+
+[config]
+categories = ["launch_campaign"]

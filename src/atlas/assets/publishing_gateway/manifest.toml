@@ -1,0 +1,10 @@
+id = "publishing_gateway"
+name = "Publishing Gateway"
+kind = "operational_agent"
+description = "The single controlled entry point between ATLAS and external platforms. Builds, verifies, and queues Publish Packages from founder-approved, editorial-passed content. No external API calls, no publishing — queue management only."
+owner = "atlas"
+tags = ["affiliate", "publishing"]
+entrypoint = "atlas.assets.publishing_gateway.agent:PublishingGatewayAgent"
+
+[config]
+categories = ["publishing_gateway"]

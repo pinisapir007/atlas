@@ -1,0 +1,10 @@
+id = "recruitment_workforce"
+name = "Recruitment / Workforce"
+kind = "operational_agent"
+description = "Discovers workforce demand and manpower supply, matches employers with suppliers, and tracks every opportunity from discovery through to recurring placement revenue"
+owner = "atlas"
+tags = ["recruitment", "workforce", "revenue"]
+entrypoint = "atlas.assets.recruitment_workforce.agent:RecruitmentAgent"
+
+[config]
+categories = ["revenue_recruitment_leads"]

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python -m pytest -q 2>&1 | Select-Object -Last 80)",
+      "PowerShell(python -m pytest -q 2>&1 | Select-Object -Last 40)",
+      "PowerShell(python -m pytest -q 2>&1 | Select-Object -Last 20)",
+      "PowerShell(python -c \"from atlas.cli import main; main\\(['list']\\)\")",
+      "PowerShell(python -c \"from atlas.cli import main; main\\(['info', 'marketing']\\); print\\(\\); main\\(['info', 'affiliate']\\)\")",
+      "PowerShell(python -m pytest -q 2>&1 | Select-Object -Last 60)",
+      "PowerShell(python -m pytest -q 2>&1 | Select-Object -Last 30)",
+      "WebSearch",
+      "WebFetch(domain:ketodna.app)"
+    ]
+  }
+}

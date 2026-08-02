@@ -1,0 +1,6 @@
+id = "coo"
+name = "COO"
+kind = "operational_agent"
+description = "Operations: process execution, cross-agent coordination support, operational reporting"
+owner = "atlas"
+tags = ["operations"]

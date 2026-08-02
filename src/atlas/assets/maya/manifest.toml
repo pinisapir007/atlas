@@ -1,0 +1,7 @@
+id = "maya"
+name = "MAYA"
+kind = "agent"
+description = "Primary AI agent"
+owner = "you"
+tags = ["ai", "chat"]
+entrypoint = "atlas.assets.maya.agent:MayaAgent"

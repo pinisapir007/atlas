@@ -1,0 +1,10 @@
+id = "content_factory"
+name = "Content Factory"
+kind = "operational_agent"
+description = "Generates a complete marketing content package (angles, hooks, headlines, CTAs, platform suggestions, content ideas) for an opportunity the founder has already chosen; asks for founder review before anything further. Planning only — no image/video generation, no publishing."
+owner = "atlas"
+tags = ["affiliate", "content"]
+entrypoint = "atlas.assets.content_factory.agent:ContentFactoryAgent"
+
+[config]
+categories = ["content_factory", "content_factory_editorial_fix"]

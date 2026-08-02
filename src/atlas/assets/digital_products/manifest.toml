@@ -1,0 +1,6 @@
+id = "digital_products"
+name = "Digital Products"
+kind = "revenue_channel"
+description = "Revenue channel: packages and sells digital offers. Implemented inside the Revenue Agent (src/atlas/assets/revenue/channels/digital_products.py)"
+owner = "revenue"
+tags = ["revenue-channel", "digital-products"]

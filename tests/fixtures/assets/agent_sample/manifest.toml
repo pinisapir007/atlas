@@ -1,0 +1,7 @@
+id = "sample-agent"
+name = "Sample Agent"
+kind = "agent"
+description = "Fixture agent for tests"
+owner = "test"
+tags = ["fixture"]
+entrypoint = "tests.fixtures.assets.agent_sample.agent:SampleAgent"

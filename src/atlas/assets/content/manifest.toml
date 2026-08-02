@@ -1,0 +1,6 @@
+id = "content"
+name = "Content"
+kind = "revenue_channel"
+description = "Revenue channel: AI content and image asset production for sale/licensing. Implemented inside the Revenue Agent (src/atlas/assets/revenue/channels/content_assets.py)"
+owner = "revenue"
+tags = ["revenue-channel", "content", "ai-assets"]

@@ -1,0 +1,6 @@
+id = "affiliate"
+name = "Affiliate"
+kind = "revenue_channel"
+description = "Revenue channel: affiliate/referral promotion. Implemented inside the Revenue Agent (src/atlas/assets/revenue/channels/affiliate.py)"
+owner = "revenue"
+tags = ["revenue-channel", "affiliate"]
