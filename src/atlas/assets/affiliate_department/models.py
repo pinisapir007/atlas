@@ -58,29 +58,20 @@ STAGES = (
     "lost",
 )
 
-# Real affiliate/commerce platforms ATLAS knows how to intake a real
-# product from — kept as the set of names atlas.integrations.registry.PROVIDERS
-# actually implements, not a separately-maintained list. Adding a platform
-# means adding one CommerceProvider in atlas.integrations plus one registry
-# entry there; this set follows automatically, never a second place to update.
-SUPPORTED_PROVIDERS = {"digistore24"}
-
-
 def validate_provider_link(provider: str, real_affiliate_link: str) -> None:
     """Fail-closed intake guard. Raises ValueError — never silently accepts
     and never guesses a fix, same fail-closed philosophy as RiskPolicy/
     kpi_intake elsewhere in this codebase.
 
-    The actual link-shape validation is atlas.integrations's job now (moved
-    there so there's exactly one place, shared by any future call site,
-    that knows what a real link looks like for a given provider) — this
-    function's job is just the fail-closed contract: an unsupported
-    provider or an invalid link always raises, with a clear reason, never
-    a silent False a caller could accidentally ignore.
+    Both "is this a supported provider" and "is this a valid link for that
+    provider" are atlas.integrations's job — get_provider() already raises
+    for an unrecognized name (checked against the real, live PROVIDERS
+    registry), so there is deliberately no second, separately-maintained
+    allowlist here that could fall out of sync with it. A previous version
+    of this function had exactly that: a local SUPPORTED_PROVIDERS set that
+    was supposed to mirror the registry but didn't actually derive from
+    it — real single-source-of-truth debt, removed rather than patched.
     """
-    if provider not in SUPPORTED_PROVIDERS:
-        raise ValueError(f"unsupported affiliate provider: {provider!r} (supported: {sorted(SUPPORTED_PROVIDERS)})")
-
     if not get_provider(provider).validate_link(real_affiliate_link):
         raise ValueError(f"real_affiliate_link is not a valid {provider} link: {real_affiliate_link!r}")
 
@@ -108,7 +99,8 @@ class AffiliateOpportunity:
     # PublishPackage.tracking_link once a package is built.
     real_affiliate_link: str = ""
     # Which real affiliate network this came from (e.g. "digistore24") — ""
-    # for placeholder/discovered-only opportunities. See SUPPORTED_PROVIDERS.
+    # for placeholder/discovered-only opportunities. See
+    # atlas.integrations.registry.PROVIDERS for what's actually supported.
     provider: str = ""
     # The network's own product identifier (e.g. Digistore24's numeric
     # product ID) — provider-specific, opaque to ATLAS, kept only for the
