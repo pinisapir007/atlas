@@ -62,6 +62,49 @@ def test_already_invested_when_a_real_goal_already_pursues_the_category(tmp_path
     assert decision.context["existing_goal_ids"] == [existing.id]
 
 
+def test_a_paused_goal_does_not_block_reinvestment(tmp_path):
+    # A paused goal was tried and capital already moved away from it —
+    # treating that as "already invested" would be factually wrong and
+    # would permanently block ATLAS from ever reconsidering a category it
+    # once gave up on, no matter how much new evidence arrives later.
+    kb = _kb(tmp_path)
+    kb.save_finding(_sourced_finding("affiliate", 1))
+    kb.save_finding(_sourced_finding("affiliate", 2))
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+    paused = Goal(description="an old affiliate attempt that didn't work out", status="paused")
+    memory.save_goal(paused)
+    memory.save_task(Task(goal_id=paused.id, description="x", category="affiliate_pipeline"))
+
+    decision = decide("affiliate", kb, memory, kpis)
+
+    assert decision.verdict == "invest"
+    assert decision.context["existing_goal_ids"] == []
+    assert decision.context["paused_goal_ids"] == [paused.id]
+    assert paused.id in decision.reasoning
+    assert "paused" in decision.reasoning
+
+
+def test_a_paused_goal_alongside_an_active_one_still_blocks_reinvestment(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(_sourced_finding("affiliate", 1))
+    kb.save_finding(_sourced_finding("affiliate", 2))
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+    active = Goal(description="currently active affiliate goal", status="active")
+    memory.save_goal(active)
+    memory.save_task(Task(goal_id=active.id, description="x", category="affiliate_pipeline"))
+    paused = Goal(description="an old affiliate attempt", status="paused")
+    memory.save_goal(paused)
+    memory.save_task(Task(goal_id=paused.id, description="x", category="affiliate_pipeline"))
+
+    decision = decide("affiliate", kb, memory, kpis)
+
+    assert decision.verdict == "already_invested"
+    assert decision.context["existing_goal_ids"] == [active.id]
+    assert decision.context["paused_goal_ids"] == [paused.id]
+
+
 def test_propose_capability_when_no_channel_exists(tmp_path):
     kb = _kb(tmp_path)
     kb.save_finding(_sourced_finding("youtube", 1))

@@ -53,7 +53,19 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
     result = confidence_score(category, knowledge, memory, kpis)
     sourced = [f for f in knowledge.findings() if f.category == category and f.evidence]
     channel = CATEGORY_TASK_CATEGORIES.get(category)
-    existing_goals = goals_touching_category(category, memory)
+    # goals_touching_category() returns every goal regardless of status —
+    # correct for confidence_score()'s historical_success/measured_outcomes
+    # factors, which should learn from paused/abandoned attempts too, but
+    # wrong for "is this already being pursued": a paused goal was tried
+    # and the Strategist (or a founder) already moved capital away from it.
+    # Treating that as "already invested" would literally quote the wrong
+    # fact (nothing is being pursued) and permanently block ATLAS from ever
+    # reconsidering a category it once gave up on, no matter how much new
+    # evidence arrives — the opposite of "nothing is permanently true."
+    # Only an *active* goal represents a real, current commitment.
+    all_goals = goals_touching_category(category, memory)
+    existing_goals = [g for g in all_goals if g.status == "active"]
+    paused_goals = [g for g in all_goals if g.status == "paused"]
     # goals_touching_category() can never catch a channel-less category (it
     # structurally has no real Task category to look for), so a capability
     # gap needs its own dedup signal or propose_capability would fire every
@@ -66,6 +78,7 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
         "channel_ready": bool(channel),
         "already_pursuing": bool(existing_goals) or already_proposed,
         "existing_goal_ids": [g.id for g in existing_goals],
+        "paused_goal_ids": [g.id for g in paused_goals],
         "independent_sources": len(sourced),
     }
     risks = explain_opportunity(category, knowledge, memory, kpis)["risks"]
@@ -80,7 +93,7 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
     elif existing_goals:
         verdict = "already_invested"
         reasoning = (
-            f"'{category}' is already pursued by {len(existing_goals)} existing goal(s) "
+            f"'{category}' is already actively pursued by {len(existing_goals)} goal(s) "
             f"({', '.join(g.id for g in existing_goals)}) — no new commitment needed"
         )
     elif already_proposed:
@@ -102,9 +115,15 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
             else "confidence unscored"
         )
         verdict = "invest"
+        history_note = (
+            f" — {len(paused_goals)} prior attempt(s) at this category were paused "
+            f"({', '.join(g.id for g in paused_goals)}); confidence reflects that history"
+            if paused_goals
+            else ""
+        )
         reasoning = (
             f"'{category}' has {len(sourced)} independently-sourced findings, a real execution channel, "
-            f"and no existing commitment — {confidence_note}"
+            f"and no active commitment — {confidence_note}{history_note}"
         )
 
     return Decision(
