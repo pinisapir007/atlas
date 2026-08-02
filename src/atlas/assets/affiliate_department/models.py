@@ -1,12 +1,17 @@
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from urllib.parse import parse_qs, urlparse
 
-# Self-contained: no atlas.core/atlas.brain imports, matching every other
-# asset in the registry. new_id()/now() are local copies of the same helpers
-# atlas.brain.models and recruitment_workforce.models already use, not a
-# shared dependency.
+from atlas.integrations.registry import get_provider
+
+# Self-contained with respect to atlas.core/atlas.brain: no imports from
+# either, matching every other asset in the registry. new_id()/now() are
+# local copies of the same helpers atlas.brain.models and
+# recruitment_workforce.models already use, not a shared dependency.
+# atlas.integrations is a peer, dependency-free layer (like stdlib), not
+# part of atlas.core/atlas.brain's orchestration — importing the real
+# per-provider link validation from there instead of duplicating it here
+# is exactly what that layer exists for.
 
 
 def new_id(prefix: str) -> str:
@@ -53,20 +58,12 @@ STAGES = (
     "lost",
 )
 
-# Real affiliate networks ATLAS knows how to intake a real product from.
-# An open set (not a closed enum, matching Task.category/Registry.kind
-# elsewhere in this codebase) — adding a network is adding one string here
-# plus one entry in _LINK_HOSTS, never a schema change.
+# Real affiliate/commerce platforms ATLAS knows how to intake a real
+# product from — kept as the set of names atlas.integrations.registry.PROVIDERS
+# actually implements, not a separately-maintained list. Adding a platform
+# means adding one CommerceProvider in atlas.integrations plus one registry
+# entry there; this set follows automatically, never a second place to update.
 SUPPORTED_PROVIDERS = {"digistore24"}
-
-# The generic Digistore24 domain — a link containing this is accepted
-# outright, no further parsing needed.
-_LINK_HOSTS = {"digistore24": "digistore24.com"}
-
-# The affiliate tracking parameter name required on a non-digistore24.com
-# link (a vendor's own custom sales-page domain, tracking the affiliate via
-# an aff= query/fragment parameter instead of the generic redir link).
-_AFF_PARAM = {"digistore24": "aff"}
 
 
 def validate_provider_link(provider: str, real_affiliate_link: str) -> None:
@@ -74,33 +71,18 @@ def validate_provider_link(provider: str, real_affiliate_link: str) -> None:
     and never guesses a fix, same fail-closed philosophy as RiskPolicy/
     kpi_intake elsewhere in this codebase.
 
-    Two real Digistore24 link shapes are accepted:
-    1. The generic digistore24.com/redir/... link — a plain substring check.
-    2. A vendor's own custom sales-page domain, which must still be a real
-       https URL with a real hostname and an exact, non-empty "aff" tracking
-       parameter in its query string or fragment — a strict, parsed check
-       specifically so an arbitrary URL that merely contains the literal
-       text "aff=" somewhere (e.g. in its path) is never mistaken for a real
-       affiliate link.
+    The actual link-shape validation is atlas.integrations's job now (moved
+    there so there's exactly one place, shared by any future call site,
+    that knows what a real link looks like for a given provider) — this
+    function's job is just the fail-closed contract: an unsupported
+    provider or an invalid link always raises, with a clear reason, never
+    a silent False a caller could accidentally ignore.
     """
     if provider not in SUPPORTED_PROVIDERS:
         raise ValueError(f"unsupported affiliate provider: {provider!r} (supported: {sorted(SUPPORTED_PROVIDERS)})")
 
-    if _LINK_HOSTS[provider] in real_affiliate_link.lower():
-        return
-
-    parsed = urlparse(real_affiliate_link)
-    if parsed.scheme != "https":
-        raise ValueError(f"real_affiliate_link must be https (got scheme {parsed.scheme!r})")
-    if not parsed.hostname:
-        raise ValueError("real_affiliate_link must have a non-empty hostname")
-
-    param = _AFF_PARAM[provider]
-    aff_values = parse_qs(parsed.query).get(param) or parse_qs(parsed.fragment).get(param)
-    if not aff_values or not aff_values[0]:
-        raise ValueError(
-            f"real_affiliate_link must contain a non-empty {param!r} affiliate parameter in its query string or fragment"
-        )
+    if not get_provider(provider).validate_link(real_affiliate_link):
+        raise ValueError(f"real_affiliate_link is not a valid {provider} link: {real_affiliate_link!r}")
 
 
 @dataclass
