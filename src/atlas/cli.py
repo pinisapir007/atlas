@@ -177,6 +177,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Some Windows terminals report a legacy, non-UTF-8 codepage (e.g. cp1255)
+    # to Python's stdio streams, which crashes on the box-drawing/dash
+    # characters the dashboard prints. Fall back to replacing unencodable
+    # characters instead of raising, so startup never depends on the host's
+    # active codepage.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+
     effective_argv = sys.argv[1:] if argv is None else argv
     if not effective_argv:
         run_app()
