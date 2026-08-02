@@ -25,6 +25,38 @@ def test_explanation_includes_evidence_used(tmp_path):
     assert result["evidence"][0]["evidence"] == "https://example.com"
 
 
+def test_probability_of_success_is_none_with_no_track_record(tmp_path):
+    kb = _kb(tmp_path)
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    result = explain_opportunity("affiliate", kb, memory, kpis)
+
+    assert result["probability_of_success"] is None
+
+
+def test_probability_of_success_is_the_real_historical_win_rate(tmp_path):
+    kb = _kb(tmp_path)
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    winner = Goal(description="profitable affiliate goal")
+    memory.save_goal(winner)
+    memory.save_task(Task(goal_id=winner.id, description="x", category="affiliate_pipeline"))
+    kpis.record(f"revenue_{winner.id}", 100.0)
+    kpis.record(f"cost_{winner.id}", 40.0)
+
+    loser = Goal(description="unprofitable affiliate goal")
+    memory.save_goal(loser)
+    memory.save_task(Task(goal_id=loser.id, description="x", category="affiliate_pipeline"))
+    kpis.record(f"revenue_{loser.id}", 10.0)
+    kpis.record(f"cost_{loser.id}", 40.0)
+
+    result = explain_opportunity("affiliate", kb, memory, kpis)
+
+    assert result["probability_of_success"] == 0.5
+
+
 def test_expected_roi_is_none_when_nothing_measured(tmp_path):
     kb = _kb(tmp_path)
     memory = _memory(tmp_path)

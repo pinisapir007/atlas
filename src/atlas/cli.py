@@ -367,6 +367,12 @@ def _cmd_brain(args: argparse.Namespace) -> None:
                     print(f"    - [{e['source']}] {e['description']} ({e['evidence'] or 'no evidence URL'})")
                 roi_str = f"{explanation['expected_roi']:.3f}" if explanation["expected_roi"] is not None else "not yet measured"
                 print(f"  Expected ROI: {roi_str}")
+                prob_str = (
+                    f"{explanation['probability_of_success']:.0%}"
+                    if explanation["probability_of_success"] is not None
+                    else "not estimable yet (no track record)"
+                )
+                print(f"  Probability of success: {prob_str}")
                 print("  Risks:")
                 for r in explanation["risks"]:
                     print(f"    - {r}")

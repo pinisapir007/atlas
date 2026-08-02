@@ -180,6 +180,7 @@ def test_opportunities_explain_shows_evidence_roi_risks_and_rank_reason(tmp_path
 
     assert "Evidence: 1 finding(s)" in out
     assert "Expected ROI: not yet measured" in out
+    assert "Probability of success: not estimable yet (no track record)" in out
     assert "Risks:" in out
     assert "Why ranked here: ranked #1" in out
 

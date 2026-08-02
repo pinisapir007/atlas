@@ -34,6 +34,14 @@ def explain_opportunity(
     rois = [r for g in goals_touching_category(category, memory) if (r := roi(g, kpis)) is not None]
     expected_roi = sum(rois) / len(rois) if rois else None
 
+    # historical_success_score() already IS a real win-rate — the fraction
+    # of this category's past goals that resolved profitable. Surfaced
+    # directly under its requested name rather than invented separately;
+    # None (not a guessed percentage) until a real track record exists —
+    # inventing a number here would be exactly the "intuition dressed as
+    # evidence" this whole model exists to rule out.
+    probability_of_success = result["factors"]["historical_success"]
+
     risks = _assess_risks(category, result, expected_roi)
 
     missing = [_FACTOR_LABELS[k] for k, v in result["factors"].items() if v is None]
@@ -51,6 +59,7 @@ def explain_opportunity(
         "evidence": evidence,
         "confidence": result,
         "expected_roi": expected_roi,
+        "probability_of_success": probability_of_success,
         "risks": risks,
         "missing_evidence": missing,
         "rank_reason": rank_reason,
