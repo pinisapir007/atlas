@@ -5,6 +5,7 @@ from atlas.brain.confidence import (
     historical_success_score,
     internal_experiments_score,
     measured_outcomes_score,
+    rank_by_confidence,
     recency_score,
     repeatability_score,
     source_corroboration_score,
@@ -42,6 +43,25 @@ def test_weighted_average_ignores_missing_factors_rather_than_treating_as_zero()
 def test_weighted_average_with_everything_available():
     result = weighted_average_of_available({"a": 1.0, "b": 0.0}, {"a": 0.5, "b": 0.5})
     assert result == 0.5
+
+
+def test_rank_by_confidence_orders_by_score_descending():
+    results = [{"score": 0.3, "factors_available": 2}, {"score": 0.9, "factors_available": 1}]
+    ranked = rank_by_confidence(results)
+    assert [r["score"] for r in ranked] == [0.9, 0.3]
+
+
+def test_rank_by_confidence_ranks_none_score_lowest_without_crashing():
+    results = [{"score": None, "factors_available": 0}, {"score": 0.1, "factors_available": 1}]
+    ranked = rank_by_confidence(results)
+    assert ranked[0]["score"] == 0.1
+    assert ranked[1]["score"] is None
+
+
+def test_rank_by_confidence_breaks_ties_by_factors_available():
+    results = [{"score": 0.5, "factors_available": 1}, {"score": 0.5, "factors_available": 3}]
+    ranked = rank_by_confidence(results)
+    assert ranked[0]["factors_available"] == 3
 
 
 # --- source_corroboration_score -------------------------------------------------

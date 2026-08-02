@@ -1,4 +1,4 @@
-from atlas.brain.confidence import recency_score, source_corroboration_score, weighted_average_of_available
+from atlas.brain.confidence import rank_by_confidence, recency_score, source_corroboration_score, weighted_average_of_available
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.integrations.registry import PROVIDERS
 
@@ -54,6 +54,5 @@ def rank_providers(category: str, knowledge: KnowledgeBase) -> list[dict]:
     with no change needed to this function.
     """
     eligible = [name for name, provider in PROVIDERS.items() if provider.category == category]
-    ranked = [provider_confidence(category, name, knowledge) for name in eligible]
-    ranked.sort(key=lambda r: (r["score"] is not None, r["score"] or 0.0, r["factors_available"]), reverse=True)
-    return ranked
+    unranked = [provider_confidence(category, name, knowledge) for name in eligible]
+    return rank_by_confidence(unranked)

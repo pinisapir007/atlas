@@ -7,7 +7,7 @@ from atlas.assets.publishing_gateway.agent import PublishingGatewayAgent
 from atlas.assets.publishing_gateway.store import PublishingQueueStore
 from atlas.assets.recruitment_workforce.agent import RecruitmentAgent
 from atlas.brain.ceo import CEOBrain
-from atlas.brain.confidence import confidence_score
+from atlas.brain.confidence import confidence_score, rank_by_confidence
 from atlas.brain.explain import explain_opportunity
 from atlas.brain.console import build_console_view, format_console_view
 from atlas.brain.kpi_intake import record_manual_revenue
@@ -359,13 +359,8 @@ def _cmd_brain(args: argparse.Namespace) -> None:
 
     elif cmd == "opportunities":
         categories = sorted({f.category for f in brain.knowledge.findings()})
-        ranked = sorted(
-            (confidence_score(c, brain.knowledge, brain.memory, brain.kpis) for c in categories),
-            # A tie on the combined score must not rank thinner evidence
-            # equal to broader evidence — factors_available breaks the tie.
-            key=lambda r: (r["score"] is not None, r["score"] or 0.0, r["factors_available"]),
-            reverse=True,
-        )
+        unranked = [confidence_score(c, brain.knowledge, brain.memory, brain.kpis) for c in categories]
+        ranked = rank_by_confidence(unranked)
         for i, result in enumerate(ranked, start=1):
             score = f"{result['score']:.3f}" if result["score"] is not None else "unscored (no evidence yet)"
             print(f"{result['category']}\tconfidence={score}\tfactors={result['factors_available']}/{result['factors_total']}")

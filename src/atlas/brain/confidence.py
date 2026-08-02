@@ -40,6 +40,21 @@ def weighted_average_of_available(components: dict, weights: dict) -> float | No
     weight_sum = sum(weights[k] for k in available)
     return sum(weights[k] * v for k, v in available.items()) / weight_sum
 
+
+def rank_by_confidence(results: list[dict]) -> list[dict]:
+    """Sorts a list of confidence_score()/provider_confidence()-shaped
+    dicts by score descending (None ranks lowest, never crashes the sort),
+    tie-broken by factors_available so a thin score never outranks a
+    broader one that happens to tie on the raw number. The one ranking
+    rule shared by every confidence-based ranking in this codebase
+    (`atlas brain opportunities`, `provider_ranking.rank_providers()`) —
+    lives here once rather than being reimplemented at each call site."""
+    return sorted(
+        results,
+        key=lambda r: (r["score"] is not None, r["score"] or 0.0, r["factors_available"]),
+        reverse=True,
+    )
+
 # Maps a Finding.category to the real, dispatchable Task categories
 # (grepped from every manifest.toml's [config] categories, not guessed) that
 # actually execute that channel today. "youtube"/"ugc" map to nothing —
