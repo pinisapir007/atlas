@@ -1,7 +1,7 @@
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.memory import BrainMemory
-from atlas.brain.models import Goal, Task
+from atlas.brain.models import Finding, Goal, Task
 from atlas.core.registry import Registry
 from atlas.core.store import JSONStore
 
@@ -440,3 +440,32 @@ def test_research_discovers_and_revenue_executes_the_correct_channel(tmp_path, m
     research_reloaded = brain.memory.get_task(research_task.id)
     assert research_reloaded.status == "done"
     assert any(h["reason"].startswith("absorbed") for h in research_reloaded.history)
+
+
+def test_tick_auto_promotes_a_well_evidenced_category_into_a_real_goal_and_dispatch(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    brain = _brain(tmp_path)
+    brain.knowledge.save_finding(
+        Finding(source="research", category="digital_product", description="signal 1", evidence="https://example.com/1")
+    )
+    brain.knowledge.save_finding(
+        Finding(source="research", category="digital_product", description="signal 2", evidence="https://example.com/2")
+    )
+
+    brain.tick()  # advance_intelligence creates the goal+bootstrap task
+
+    goals = [g for g in brain.memory.goals() if g.engine_id == "intelligence_digital_product"]
+    assert len(goals) == 1
+    tasks = [t for t in brain.memory.tasks() if t.goal_id == goals[0].id]
+    assert len(tasks) == 1
+    assert tasks[0].category == "revenue_digital_product"
+    assert tasks[0].status == "proposed"  # not yet risk-gated/delegated this same tick
+
+    brain.tick()  # next cycle: prioritized, risk-gated, delegated for real
+
+    dispatched = brain.memory.get_task(tasks[0].id)
+    assert dispatched.status == "done"
+    assert dispatched.assigned_asset_id == "revenue"
+
+    brain.tick()  # a third tick must not create a second goal for the same category
+    assert len([g for g in brain.memory.goals() if g.engine_id == "intelligence_digital_product"]) == 1

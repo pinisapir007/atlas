@@ -7,6 +7,7 @@ from atlas.brain.editorial_review_advance import advance_editorial_review
 from atlas.brain.publishing_gateway_advance import advance_publishing_gateway
 from atlas.brain.improvement import propose_improvements
 from atlas.brain.intake import absorb_opportunities
+from atlas.brain.intelligence_advance import advance_intelligence
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.kpi_intake import record_revenue
@@ -95,6 +96,12 @@ class CEOBrain:
 
         for opportunity_task in absorb_opportunities(self.memory.tasks(), self.registry, self.memory, self.knowledge):
             self.memory.save_task(opportunity_task)
+
+        intelligence_goals, intelligence_tasks = advance_intelligence(self.knowledge, self.memory, self.kpis)
+        for goal in intelligence_goals:
+            self.memory.save_goal(goal)
+        for task in intelligence_tasks:
+            self.memory.save_task(task)
 
         for continuation_task in advance_recruitment_pipeline(self.memory.tasks(), self.registry, self.memory):
             self.memory.save_task(continuation_task)
