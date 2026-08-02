@@ -99,6 +99,12 @@ def build_parser() -> argparse.ArgumentParser:
     finding_add.add_argument("--evidence", default="", help="a real URL/citation — leave unset if there isn't one yet")
     finding_sub.add_parser("list", help="list every recorded finding")
 
+    decisions_parser = brain_sub.add_parser("decisions", help="Decision Engine verdict history — full traceability, read-only")
+    decisions_sub = decisions_parser.add_subparsers(dest="decisions_command", required=True)
+    decisions_sub.add_parser("list", help="every Decision on record, latest first")
+    decisions_show = decisions_sub.add_parser("show", help="full provenance for one category's current decision")
+    decisions_show.add_argument("category")
+
     recruitment_parser = subparsers.add_parser("recruitment", help="Recruitment/Workforce agent intake and approvals")
     recruitment_sub = recruitment_parser.add_subparsers(dest="recruitment_command", required=True)
 
@@ -388,6 +394,34 @@ def _cmd_brain(args: argparse.Namespace) -> None:
         else:
             for finding in brain.knowledge.findings():
                 print(f"{finding.id}\t{finding.category}\t{finding.source}\t{finding.description}\t{finding.evidence}")
+
+    elif cmd == "decisions":
+        if args.decisions_command == "show":
+            decision = brain.decisions.latest_for_category(args.category)
+            if decision is None:
+                print(f"no decision on record for '{args.category}'")
+            else:
+                _print_decision(decision)
+        else:
+            for decision in sorted(brain.decisions.decisions(), key=lambda d: d.created_at, reverse=True):
+                confidence = f"{decision.confidence:.3f}" if decision.confidence is not None else "unscored"
+                print(f"{decision.id}\t{decision.category}\t{decision.verdict}\tconfidence={confidence}\t{decision.created_at}")
+
+
+def _print_decision(decision) -> None:
+    confidence = f"{decision.confidence:.3f}" if decision.confidence is not None else "unscored"
+    print(f"=== Decision {decision.id} — {decision.category} ===")
+    print(f"Verdict: {decision.verdict}")
+    print(f"Confidence: {confidence}")
+    print(f"Reasoning: {decision.reasoning}")
+    print(f"Context: {decision.context}")
+    print(f"Evidence cited ({len(decision.evidence_finding_ids)} finding(s)): {', '.join(decision.evidence_finding_ids) or '(none)'}")
+    print("Risks:")
+    for risk in decision.risks:
+        print(f"  - {risk}")
+    print(f"Goal created: {decision.goal_id or '(none)'}")
+    print(f"Supersedes: {decision.superseded_id or '(none — first decision for this category)'}")
+    print(f"Decided at: {decision.created_at}")
 
 
 def _print_report(report: dict) -> None:

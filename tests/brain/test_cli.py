@@ -170,6 +170,49 @@ def test_opportunities_ranks_categories_by_confidence_descending(tmp_path, monke
     assert "factors=1/6" in lines[1]
 
 
+def test_decisions_list_is_empty_before_any_tick(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    main(["brain", "decisions", "list"])
+    out = capsys.readouterr().out
+
+    assert out.strip() == ""
+
+
+def test_decisions_show_reports_no_decision_on_record(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    main(["brain", "decisions", "show", "affiliate"])
+    out = capsys.readouterr().out
+
+    assert "no decision on record for 'affiliate'" in out
+
+
+def test_decisions_list_and_show_after_a_real_tick(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["brain", "finding", "add", "research", "digital_product", "signal 1", "--evidence", "https://example.com/1"])
+    capsys.readouterr()
+    main(["brain", "finding", "add", "research", "digital_product", "signal 2", "--evidence", "https://example.com/2"])
+    capsys.readouterr()
+
+    main(["brain", "tick"])
+    capsys.readouterr()
+
+    main(["brain", "decisions", "list"])
+    list_out = capsys.readouterr().out
+    assert "digital_product" in list_out
+    assert "invest" in list_out
+
+    main(["brain", "decisions", "show", "digital_product"])
+    show_out = capsys.readouterr().out
+    assert "Verdict: invest" in show_out
+    assert "Evidence cited (2 finding(s))" in show_out
+    assert "Reasoning:" in show_out
+    assert "Risks:" in show_out
+    assert "Goal created:" in show_out
+    assert "(none — first decision for this category)" in show_out
+
+
 def test_opportunities_explain_shows_evidence_roi_risks_and_rank_reason(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["brain", "finding", "add", "research", "affiliate", "a real signal", "--evidence", "https://example.com"])
