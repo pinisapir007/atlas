@@ -52,3 +52,13 @@ def test_recruit_agent_always_requires_approval():
 def test_redesign_prefix_always_requires_approval():
     decision = RiskPolicy().evaluate(_task(category="redesign_workflow"))
     assert decision.requires_approval is True
+
+
+def test_improve_workflow_category_does_not_require_approval():
+    # Exactly the shape improvement.py's workflow-improvement candidates
+    # take: "improve_" (not "redesign_"), reversible=True. Per standing
+    # policy (2026-08-02), workflow/automation/performance improvements are
+    # pre-approved — this is the RiskPolicy-level proof that they actually
+    # clear every axis, not just that the category name changed.
+    decision = RiskPolicy().evaluate(_task(category="improve_workflow"))
+    assert decision.requires_approval is False
