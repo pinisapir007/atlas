@@ -96,6 +96,42 @@ class Finding:
 
 
 @dataclass
+class Decision:
+    """One Decision Engine verdict on a category, with full provenance.
+
+    The Decision Engine is the only component allowed to produce these —
+    the Intelligence Layer (Finding/KnowledgeBase/confidence_score) never
+    decides, only discovers and measures (standing architecture, locked
+    2026-08-02). Every field here is either a citation (evidence_finding_ids,
+    factors) or a structured fact (context) — reasoning is a deterministic
+    string built from those fields, never freeform generated text, so
+    "why" is always traceable to what's actually stored, not a plausible-
+    sounding explanation that may not reflect the real computation.
+
+    Decisions are never overwritten — a changed verdict for the same
+    category is a new Decision record (superseded_id points at the one it
+    replaces), so the full history of how ATLAS's judgment moved as
+    evidence changed is preserved, never lost.
+    """
+
+    category: str
+    verdict: str  # "invest" | "already_invested" | "insufficient_evidence" | "propose_capability"
+    confidence: float | None  # from confidence_score() — the Intelligence input, unmodified
+    factors: dict  # confidence_score()'s per-factor breakdown, cited as-is
+    evidence_finding_ids: list[str] = field(default_factory=list)
+    # Company-context inputs actually available today — deliberately not a
+    # fabricated resource/budget model. See decision_engine.py for what's
+    # honestly known vs. not.
+    context: dict = field(default_factory=dict)
+    risks: list[str] = field(default_factory=list)
+    reasoning: str = ""
+    goal_id: str | None = None  # set only when verdict == "invest" or "propose_capability" and a Goal was created
+    superseded_id: str | None = None  # the prior Decision for this category this one reopens/replaces, if any
+    id: str = field(default_factory=lambda: new_id("decision"))
+    created_at: str = field(default_factory=now)
+
+
+@dataclass
 class Proposal:
     """A structural decision ATLAS wants to make but cannot execute itself:
     creating an asset, recruiting an agent, or redesigning part of the
