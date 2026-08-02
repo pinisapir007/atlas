@@ -24,6 +24,22 @@ WEIGHTS = {
 SOURCE_SATURATION_SAMPLE = 3  # 3 independently-sourced findings = full corroboration credit, same saturating-sample shape as valuation.MATURITY_SAMPLE
 RECENCY_WINDOW_DAYS = 90  # a finding older than this contributes ~0 recency credit
 
+
+def weighted_average_of_available(components: dict, weights: dict) -> float | None:
+    """The fail-closed combination rule this codebase uses everywhere it
+    blends multiple named factors into one score: a weighted average of
+    only the factors with real data. A missing factor is never treated as
+    zero; if every factor is missing, returns None, not a fabricated
+    number. Shared by confidence_score() (category-level, below) and
+    provider_ranking.provider_confidence() (provider-level) — the two
+    differ only in which factors and weights they use, never in how those
+    get combined, so that combination step lives here once."""
+    available = {k: v for k, v in components.items() if v is not None}
+    if not available:
+        return None
+    weight_sum = sum(weights[k] for k in available)
+    return sum(weights[k] * v for k, v in available.items()) / weight_sum
+
 # Maps a Finding.category to the real, dispatchable Task categories
 # (grepped from every manifest.toml's [config] categories, not guessed) that
 # actually execute that channel today. "youtube"/"ugc" map to nothing —
@@ -195,17 +211,12 @@ def confidence_score(category: str, knowledge: KnowledgeBase, memory: BrainMemor
         "internal_experiments": internal_experiments_score(category, memory, kpis),
         "measured_outcomes": measured_outcomes_score(category, memory, kpis),
     }
-    available = {k: v for k, v in components.items() if v is not None}
-    if not available:
-        combined = None
-    else:
-        weight_sum = sum(WEIGHTS[k] for k in available)
-        combined = sum(WEIGHTS[k] * v for k, v in available.items()) / weight_sum
+    combined = weighted_average_of_available(components, WEIGHTS)
 
     return {
         "category": category,
         "score": combined,
         "factors": components,
-        "factors_available": len(available),
+        "factors_available": sum(1 for v in components.values() if v is not None),
         "factors_total": len(components),
     }

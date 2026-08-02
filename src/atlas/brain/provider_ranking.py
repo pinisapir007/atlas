@@ -1,4 +1,4 @@
-from atlas.brain.confidence import recency_score, source_corroboration_score
+from atlas.brain.confidence import recency_score, source_corroboration_score, weighted_average_of_available
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.integrations.registry import PROVIDERS
 
@@ -28,19 +28,14 @@ def provider_confidence(category: str, provider: str, knowledge: KnowledgeBase) 
         "source_corroboration": source_corroboration_score(category, knowledge, provider=provider),
         "recency": recency_score(category, knowledge, provider=provider),
     }
-    available = {k: v for k, v in components.items() if v is not None}
-    if not available:
-        combined = None
-    else:
-        weight_sum = sum(PROVIDER_WEIGHTS[k] for k in available)
-        combined = sum(PROVIDER_WEIGHTS[k] * v for k, v in available.items()) / weight_sum
+    combined = weighted_average_of_available(components, PROVIDER_WEIGHTS)
 
     return {
         "provider": provider,
         "category": category,
         "score": combined,
         "factors": components,
-        "factors_available": len(available),
+        "factors_available": sum(1 for v in components.values() if v is not None),
         "factors_total": len(components),
     }
 

@@ -8,6 +8,7 @@ from atlas.brain.confidence import (
     recency_score,
     repeatability_score,
     source_corroboration_score,
+    weighted_average_of_available,
 )
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
@@ -21,6 +22,26 @@ def _kb(tmp_path):
 
 def _memory(tmp_path):
     return BrainMemory(tmp_path / "brain.json")
+
+
+# --- weighted_average_of_available (shared by confidence_score() and
+# provider_ranking.provider_confidence() — direct coverage here since it's
+# now an independently-important, shared combination rule) ------------------
+
+
+def test_weighted_average_returns_none_when_nothing_available():
+    assert weighted_average_of_available({"a": None, "b": None}, {"a": 0.5, "b": 0.5}) is None
+
+
+def test_weighted_average_ignores_missing_factors_rather_than_treating_as_zero():
+    # weight ratio 3:1 between a and c; b is missing and must not count as 0
+    result = weighted_average_of_available({"a": 1.0, "b": None, "c": 0.0}, {"a": 0.3, "b": 0.5, "c": 0.1})
+    assert abs(result - 0.75) < 1e-9  # (0.3*1.0 + 0.1*0.0) / (0.3+0.1)
+
+
+def test_weighted_average_with_everything_available():
+    result = weighted_average_of_available({"a": 1.0, "b": 0.0}, {"a": 0.5, "b": 0.5})
+    assert result == 0.5
 
 
 # --- source_corroboration_score -------------------------------------------------
