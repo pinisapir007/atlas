@@ -75,6 +75,19 @@ def test_propose_capability_when_no_channel_exists(tmp_path):
     assert decision.context["channel_ready"] is False
 
 
+def test_already_proposed_when_a_capability_gap_goal_already_exists(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(_sourced_finding("youtube", 1))
+    kb.save_finding(_sourced_finding("youtube", 2))
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+    memory.save_goal(Goal(description="Capability gap: youtube", engine_id="intelligence_youtube"))
+
+    decision = decide("youtube", kb, memory, kpis)
+
+    assert decision.verdict == "already_proposed"
+
+
 def test_decision_carries_full_citation_and_risks(tmp_path):
     kb = _kb(tmp_path)
     kb.save_finding(_sourced_finding("digital_product", 1))

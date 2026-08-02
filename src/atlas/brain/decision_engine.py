@@ -46,10 +46,17 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
     sourced = [f for f in knowledge.findings() if f.category == category and f.evidence]
     channel = CATEGORY_TASK_CATEGORIES.get(category)
     existing_goals = goals_touching_category(category, memory)
+    # goals_touching_category() can never catch a channel-less category (it
+    # structurally has no real Task category to look for), so a capability
+    # gap needs its own dedup signal or propose_capability would fire every
+    # single call — engine_id is the same correlation key intelligence_advance
+    # used before this split, preserved here since decide() is now the only
+    # place that determines whether a capability gap was already flagged.
+    already_proposed = any(g.engine_id == f"intelligence_{category}" for g in memory.goals())
 
     context = {
         "channel_ready": bool(channel),
-        "already_pursuing": bool(existing_goals),
+        "already_pursuing": bool(existing_goals) or already_proposed,
         "existing_goal_ids": [g.id for g in existing_goals],
         "independent_sources": len(sourced),
     }
@@ -67,6 +74,12 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
         reasoning = (
             f"'{category}' is already pursued by {len(existing_goals)} existing goal(s) "
             f"({', '.join(g.id for g in existing_goals)}) — no new commitment needed"
+        )
+    elif already_proposed:
+        verdict = "already_proposed"
+        reasoning = (
+            f"a capability-gap proposal for '{category}' already exists — awaiting founder decision, "
+            "not re-proposing"
         )
     elif not channel:  # None (unknown category) or set() (known category, no real channel yet) both mean no capability
         verdict = "propose_capability"

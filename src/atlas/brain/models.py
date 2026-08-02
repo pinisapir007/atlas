@@ -115,7 +115,7 @@ class Decision:
     """
 
     category: str
-    verdict: str  # "invest" | "already_invested" | "insufficient_evidence" | "propose_capability"
+    verdict: str  # "invest" | "already_invested" | "already_proposed" | "insufficient_evidence" | "propose_capability"
     confidence: float | None  # from confidence_score() — the Intelligence input, unmodified
     factors: dict  # confidence_score()'s per-factor breakdown, cited as-is
     evidence_finding_ids: list[str] = field(default_factory=list)
