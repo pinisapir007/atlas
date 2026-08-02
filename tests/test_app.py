@@ -1,5 +1,6 @@
 from atlas.app import _normalize, run_app
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Task
 from atlas.core.registry import Registry
@@ -10,6 +11,7 @@ def _brain(tmp_path):
     return CEOBrain(
         memory=BrainMemory(tmp_path / "brain.json"),
         registry=Registry(store=JSONStore(tmp_path / "state.json")),
+        knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
     )
 
 

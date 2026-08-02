@@ -7,6 +7,7 @@ from atlas.brain.editorial_review_advance import advance_editorial_review
 from atlas.brain.publishing_gateway_advance import advance_publishing_gateway
 from atlas.brain.improvement import propose_improvements
 from atlas.brain.intake import absorb_opportunities
+from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.kpi_intake import record_revenue
 from atlas.brain.memory import BrainMemory
@@ -42,6 +43,7 @@ class CEOBrain:
         risk_policy: RiskPolicy | None = None,
         reporter: Reporter | None = None,
         strategist: Strategist | None = None,
+        knowledge: KnowledgeBase | None = None,
     ):
         self.memory = memory if memory is not None else BrainMemory()
         self.registry = registry if registry is not None else Registry()
@@ -50,6 +52,7 @@ class CEOBrain:
         self.risk_policy = risk_policy if risk_policy is not None else RiskPolicy()
         self.reporter = reporter if reporter is not None else Reporter()
         self.strategist = strategist if strategist is not None else SimpleStrategist()
+        self.knowledge = knowledge if knowledge is not None else KnowledgeBase()
         self.kpis = KPIRegistry(self.memory)
         self.delegator = Delegator(self.memory)
         self.monitor = Monitor()
@@ -90,7 +93,7 @@ class CEOBrain:
 
         self.monitor.sync(self.memory.tasks(), self.registry, self.memory, self.kpis)
 
-        for opportunity_task in absorb_opportunities(self.memory.tasks(), self.registry, self.memory):
+        for opportunity_task in absorb_opportunities(self.memory.tasks(), self.registry, self.memory, self.knowledge):
             self.memory.save_task(opportunity_task)
 
         for continuation_task in advance_recruitment_pipeline(self.memory.tasks(), self.registry, self.memory):
