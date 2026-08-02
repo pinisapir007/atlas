@@ -32,6 +32,7 @@ class Digistore24Provider:
     """
 
     name = "digistore24"
+    category = "affiliate"
     _HOST = "digistore24.com"
     _AFF_PARAM = "aff"
 

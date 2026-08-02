@@ -6,6 +6,10 @@ def test_satisfies_the_commerce_provider_protocol():
     assert isinstance(Digistore24Provider(), CommerceProvider)
 
 
+def test_declares_the_affiliate_category_it_serves():
+    assert Digistore24Provider().category == "affiliate"
+
+
 def test_accepts_the_generic_digistore24_domain_link():
     assert Digistore24Provider().validate_link("https://www.digistore24.com/redir/123456/myaffid/") is True
 

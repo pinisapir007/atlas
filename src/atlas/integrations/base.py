@@ -28,6 +28,11 @@ class CommerceProvider(Protocol):
     """
 
     name: str
+    # The Finding/Task category this provider serves (e.g. "affiliate") —
+    # what makes it possible to ask "which registered providers are even
+    # eligible for this category" without any credential or network call.
+    # A structural fact about the provider, not a runtime decision.
+    category: str
 
     def validate_link(self, url: str) -> bool:
         """Whether `url` is a real, correctly-formed tracking/product link
