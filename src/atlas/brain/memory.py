@@ -3,6 +3,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from atlas.brain.models import Goal, Proposal, Task
+from atlas.brain.store import BrainStore, JSONFileStore
 
 _EMPTY = {"goals": {}, "tasks": {}, "proposals": {}, "kpis": {}, "log": []}
 
@@ -13,19 +14,23 @@ class BrainMemory:
 
     Separate from atlas.core.store.JSONStore, which holds per-asset run
     state (a different concern) at .atlas/state.json.
+
+    Storage is delegated to a BrainStore (default: JSONFileStore, atomic
+    writes) so a future backend can be swapped in via `store=` without
+    changing this class's API or anything that calls it. `path` is kept as
+    a convenience for the common case (and for every existing caller that
+    already passes one) — it's ignored if `store` is given explicitly.
     """
 
-    def __init__(self, path: Path = Path(".atlas/brain.json")):
-        self._path = Path(path)
+    def __init__(self, path: Path = Path(".atlas/brain.json"), store: BrainStore | None = None):
+        self._store = store if store is not None else JSONFileStore(path)
 
     def _read(self) -> dict:
-        if not self._path.exists():
-            return json.loads(json.dumps(_EMPTY))
-        return json.loads(self._path.read_text())
+        data = self._store.read()
+        return data if data is not None else json.loads(json.dumps(_EMPTY))
 
     def _write(self, data: dict) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(data, indent=2))
+        self._store.write(data)
 
     def save_goal(self, goal: Goal) -> None:
         data = self._read()
