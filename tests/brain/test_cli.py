@@ -170,6 +170,20 @@ def test_opportunities_ranks_categories_by_confidence_descending(tmp_path, monke
     assert "factors=1/6" in lines[1]
 
 
+def test_opportunities_explain_shows_evidence_roi_risks_and_rank_reason(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["brain", "finding", "add", "research", "affiliate", "a real signal", "--evidence", "https://example.com"])
+    capsys.readouterr()
+
+    main(["brain", "opportunities", "--explain"])
+    out = capsys.readouterr().out
+
+    assert "Evidence: 1 finding(s)" in out
+    assert "Expected ROI: not yet measured" in out
+    assert "Risks:" in out
+    assert "Why ranked here: ranked #1" in out
+
+
 def test_opportunities_with_no_findings_prints_nothing(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
 

@@ -29,7 +29,7 @@ RECENCY_WINDOW_DAYS = 90  # a finding older than this contributes ~0 recency cre
 # actually execute that channel today. "youtube"/"ugc" map to nothing —
 # there is no dispatchable channel for either yet, so every score below
 # honestly returns None for them rather than pretending one exists.
-_CATEGORY_TASK_CATEGORIES: dict[str, set[str]] = {
+CATEGORY_TASK_CATEGORIES: dict[str, set[str]] = {
     "affiliate": {
         "affiliate_pipeline",
         "affiliate_intelligence",
@@ -48,8 +48,8 @@ _CATEGORY_TASK_CATEGORIES: dict[str, set[str]] = {
 }
 
 
-def _goals_touching_category(category: str, memory: BrainMemory) -> list[Goal]:
-    task_categories = _CATEGORY_TASK_CATEGORIES.get(category, set())
+def goals_touching_category(category: str, memory: BrainMemory) -> list[Goal]:
+    task_categories = CATEGORY_TASK_CATEGORIES.get(category, set())
     if not task_categories:
         return []
     goal_ids = {t.goal_id for t in memory.tasks() if t.category in task_categories}
@@ -95,7 +95,7 @@ def historical_success_score(category: str, memory: BrainMemory, kpis: KPIRegist
     """Factor 5: historical success of similar opportunities — the fraction
     of this category's goals with a real, positive measured profit. None
     when no goal in this category has both revenue and cost measured yet."""
-    resolved = [p for g in _goals_touching_category(category, memory) if (p := profit(g, kpis)) is not None]
+    resolved = [p for g in goals_touching_category(category, memory) if (p := profit(g, kpis)) is not None]
     if not resolved:
         return None
     return sum(1 for p in resolved if p > 0) / len(resolved)
@@ -110,7 +110,7 @@ def internal_experiments_score(category: str, memory: BrainMemory, kpis: KPIRegi
     tagged with engine_id and have measured cost."""
     rois = [
         r
-        for g in _goals_touching_category(category, memory)
+        for g in goals_touching_category(category, memory)
         if g.engine_id is not None and (r := roi(g, kpis)) is not None
     ]
     if not rois:
@@ -124,7 +124,7 @@ def measured_outcomes_score(category: str, memory: BrainMemory, kpis: KPIRegistr
     category's goals with measured cost (not just win/loss like factor 5,
     the actual size of the return). The single strongest factor: real
     money, not a proxy for it."""
-    rois = [r for g in _goals_touching_category(category, memory) if (r := roi(g, kpis)) is not None]
+    rois = [r for g in goals_touching_category(category, memory) if (r := roi(g, kpis)) is not None]
     if not rois:
         return None
     avg = sum(rois) / len(rois)

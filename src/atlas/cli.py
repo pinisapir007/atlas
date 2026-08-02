@@ -8,6 +8,7 @@ from atlas.assets.publishing_gateway.store import PublishingQueueStore
 from atlas.assets.recruitment_workforce.agent import RecruitmentAgent
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.confidence import confidence_score
+from atlas.brain.explain import explain_opportunity
 from atlas.brain.console import build_console_view, format_console_view
 from atlas.brain.kpi_intake import record_manual_revenue
 from atlas.brain.models import Finding, Task
@@ -82,8 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
     report_parser = brain_sub.add_parser("report", help="run a strategic review and print the executive report")
     report_parser.add_argument("--period", choices=["daily", "weekly", "monthly"], default="daily")
 
-    brain_sub.add_parser(
+    opportunities_parser = brain_sub.add_parser(
         "opportunities", help="rank every discovered category by evidence-weighted confidence (Intelligence layer)"
+    )
+    opportunities_parser.add_argument(
+        "--explain", action="store_true", help="show full evidence/confidence/ROI/risk breakdown for every ranked category"
     )
 
     finding_parser = brain_sub.add_parser("finding", help="manage the Intelligence knowledge base")
@@ -353,9 +357,20 @@ def _cmd_brain(args: argparse.Namespace) -> None:
             key=lambda r: (r["score"] is not None, r["score"] or 0.0, r["factors_available"]),
             reverse=True,
         )
-        for result in ranked:
+        for i, result in enumerate(ranked, start=1):
             score = f"{result['score']:.3f}" if result["score"] is not None else "unscored (no evidence yet)"
             print(f"{result['category']}\tconfidence={score}\tfactors={result['factors_available']}/{result['factors_total']}")
+            if args.explain:
+                explanation = explain_opportunity(result["category"], brain.knowledge, brain.memory, brain.kpis, rank=i)
+                print(f"  Evidence: {len(explanation['evidence'])} finding(s)")
+                for e in explanation["evidence"]:
+                    print(f"    - [{e['source']}] {e['description']} ({e['evidence'] or 'no evidence URL'})")
+                roi_str = f"{explanation['expected_roi']:.3f}" if explanation["expected_roi"] is not None else "not yet measured"
+                print(f"  Expected ROI: {roi_str}")
+                print("  Risks:")
+                for r in explanation["risks"]:
+                    print(f"    - {r}")
+                print(f"  Why ranked here: {explanation['rank_reason']}")
 
     elif cmd == "finding":
         if args.finding_command == "add":
