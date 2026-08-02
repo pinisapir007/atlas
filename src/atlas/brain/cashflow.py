@@ -26,3 +26,26 @@ def roi(goal: Goal, kpis: KPIRegistry) -> float | None:
     if p is None or not cost:
         return None
     return p / cost
+
+
+def goal_cash_flow(goals: list[Goal], kpis: KPIRegistry) -> list[dict]:
+    """One entry per goal with at least revenue or cost measured — the
+    shared shape used by both the executive report (Reporter) and the live
+    console (atlas console / REPL status), so the two never drift apart."""
+    entries = []
+    for goal in goals:
+        revenue = kpis.latest(f"revenue_{goal.id}")
+        cost = kpis.latest(f"cost_{goal.id}")
+        if revenue is None and cost is None:
+            continue
+        entries.append(
+            {
+                "goal_id": goal.id,
+                "description": goal.description,
+                "revenue": revenue,
+                "cost": cost,
+                "profit": profit(goal, kpis),
+                "roi": roi(goal, kpis),
+            }
+        )
+    return entries

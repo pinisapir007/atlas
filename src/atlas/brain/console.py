@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from atlas.brain.cashflow import goal_cash_flow
 from atlas.brain.ceo import CEOBrain
 from atlas.core.registry import UnsupportedVerb
 
@@ -63,6 +64,7 @@ def build_console_view(brain: CEOBrain) -> dict:
         "blocked": blocked,
         "departments": departments,
         "kpis": kpis,
+        "cash_flow": goal_cash_flow(goals, brain.kpis),
     }
 
 
@@ -222,5 +224,15 @@ def format_console_view(view: dict) -> str:
     lines.append("\nKPIs:")
     for name, value in sorted(view["kpis"].items()):
         lines.append(f"  {name} = {value}")
+
+    lines.append("\nCash Flow:")
+    if view["cash_flow"]:
+        for entry in view["cash_flow"]:
+            lines.append(
+                f"  {entry['description']}: revenue={entry['revenue']} cost={entry['cost']} "
+                f"profit={entry['profit']} roi={entry['roi']} ({entry['goal_id']})"
+            )
+    else:
+        lines.append("  (no goal has revenue or cost measured yet)")
 
     return "\n".join(lines)

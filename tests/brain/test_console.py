@@ -82,6 +82,22 @@ def test_view_includes_kpis(tmp_path):
     assert view["kpis"]["revenue_goal-x"] == 100.0
 
 
+def test_view_includes_cash_flow_only_for_goals_with_revenue_or_cost(tmp_path):
+    brain = _brain(tmp_path)
+    tracked = brain.add_goal("Recruitment placements")
+    brain.add_goal("Not yet measured")
+    brain.kpis.record(f"revenue_{tracked.id}", 1000.0)
+    brain.kpis.record(f"cost_{tracked.id}", 400.0)
+
+    view = build_console_view(brain)
+
+    assert len(view["cash_flow"]) == 1
+    entry = view["cash_flow"][0]
+    assert entry["goal_id"] == tracked.id
+    assert entry["profit"] == 600.0
+    assert entry["roi"] == 1.5
+
+
 def test_summarize_department_report_uses_by_stage_or_by_status():
     assert summarize_department_report({"by_stage": {"discovered": 2, "ranked": 0}}) == "{'discovered': 2}"
     assert summarize_department_report({"by_status": {"READY": 1}}) == "{'READY': 1}"
@@ -101,6 +117,19 @@ def test_format_console_view_includes_every_section(tmp_path):
     assert "Grow affiliate revenue" in text
     assert "Departments:" in text
     assert "KPIs:" in text
+    assert "Cash Flow:" in text
+    assert "(no goal has revenue or cost measured yet)" in text
+
+
+def test_format_console_view_shows_real_cash_flow_numbers(tmp_path):
+    brain = _brain(tmp_path)
+    goal = brain.add_goal("Recruitment placements")
+    brain.kpis.record(f"revenue_{goal.id}", 1000.0)
+    brain.kpis.record(f"cost_{goal.id}", 400.0)
+
+    text = format_console_view(build_console_view(brain))
+
+    assert "revenue=1000.0 cost=400.0 profit=600.0 roi=1.5" in text
 
 
 def test_find_stale_kpis_flags_old_readings(tmp_path):
