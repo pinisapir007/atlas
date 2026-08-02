@@ -271,6 +271,32 @@ def test_finding_add_defaults_evidence_to_empty(tmp_path, monkeypatch, capsys):
     assert "An idea with no source yet" in out
 
 
+def test_finding_add_accepts_a_provider_scoped_finding(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(
+        [
+            "brain", "finding", "add", "research", "affiliate", "Digistore24 has a real X% commission on this product",
+            "--evidence", "https://example.com/real-source", "--provider", "digistore24",
+        ]
+    )
+    add_out = capsys.readouterr().out
+    assert "digistore24" in add_out
+
+    main(["brain", "finding", "list"])
+    list_out = capsys.readouterr().out
+    assert "digistore24" in list_out
+
+
+def test_finding_add_without_provider_is_category_general(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["brain", "finding", "add", "research", "affiliate", "AI-tool affiliate programs pay well generally"])
+    capsys.readouterr()
+
+    main(["brain", "finding", "list"])
+    out = capsys.readouterr().out
+    assert "(category-general)" in out
+
+
 def test_affiliate_product_add_creates_a_real_discovered_opportunity(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["brain", "goal", "add", "First real affiliate income"])

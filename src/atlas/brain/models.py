@@ -85,12 +85,22 @@ class Finding:
     ugc, recruitment, content, ...), the same convention Task.category
     already uses, so a channel that has no dispatchable asset yet is still
     recorded honestly rather than dropped. evidence is a real URL/citation
-    when one exists and "" otherwise — never a fabricated source."""
+    when one exists and "" otherwise — never a fabricated source.
+
+    provider is optional and orthogonal to category: "" for a finding about
+    a channel generally (e.g. "AI-tool affiliate programs pay 20-50%
+    recurring"), or a specific registered provider name (e.g.
+    "digistore24") when the finding is evidence about *that platform*
+    specifically (e.g. "Digistore24 has X real commission structure"),
+    scoped one level deeper than category — this is what makes it possible
+    to rank *which platform* within a category, not just whether the
+    category is worth pursuing at all."""
 
     source: str
     category: str
     description: str
     evidence: str = ""
+    provider: str = ""
     id: str = field(default_factory=lambda: new_id("finding"))
     created_at: str = field(default_factory=now)
 

@@ -97,6 +97,9 @@ def build_parser() -> argparse.ArgumentParser:
     finding_add.add_argument("category", help="open string: affiliate, digital_product, youtube, ugc, ...")
     finding_add.add_argument("description")
     finding_add.add_argument("--evidence", default="", help="a real URL/citation — leave unset if there isn't one yet")
+    finding_add.add_argument(
+        "--provider", default="", help="a specific registered provider this finding is about, e.g. 'digistore24' — leave unset for a category-general finding"
+    )
     finding_sub.add_parser("list", help="list every recorded finding")
 
     decisions_parser = brain_sub.add_parser("decisions", help="Decision Engine verdict history — full traceability, read-only")
@@ -387,13 +390,20 @@ def _cmd_brain(args: argparse.Namespace) -> None:
     elif cmd == "finding":
         if args.finding_command == "add":
             finding = Finding(
-                source=args.source, category=args.category, description=args.description, evidence=args.evidence
+                source=args.source,
+                category=args.category,
+                description=args.description,
+                evidence=args.evidence,
+                provider=args.provider,
             )
             brain.knowledge.save_finding(finding)
-            print(f"{finding.id}\t{finding.category}\t{finding.description}")
+            print(f"{finding.id}\t{finding.category}\t{finding.provider or '(category-general)'}\t{finding.description}")
         else:
             for finding in brain.knowledge.findings():
-                print(f"{finding.id}\t{finding.category}\t{finding.source}\t{finding.description}\t{finding.evidence}")
+                print(
+                    f"{finding.id}\t{finding.category}\t{finding.provider or '(category-general)'}\t"
+                    f"{finding.source}\t{finding.description}\t{finding.evidence}"
+                )
 
     elif cmd == "decisions":
         if args.decisions_command == "show":
