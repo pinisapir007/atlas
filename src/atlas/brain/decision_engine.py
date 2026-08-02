@@ -14,6 +14,14 @@ from atlas.brain.models import Decision
 # not a discovery.
 MIN_INDEPENDENT_SOURCES = 2
 
+# Absolute confidence delta below which a fresh decide() result isn't worth
+# logging as a new Decision — the same anti-thrash discipline Strategist
+# already applies to reallocation (only log when the outcome would actually
+# differ). Without this, recency_score's continuous, tiny per-second decay
+# would make every single tick "different" from the last, spamming a new
+# Decision record every 30 minutes with no real evidence change behind it.
+MATERIALITY_THRESHOLD = 0.02
+
 
 def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: KPIRegistry) -> Decision:
     """The Decision Engine's core function — the only place in this
@@ -109,6 +117,21 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
         risks=risks,
         reasoning=reasoning,
     )
+
+
+def has_materially_changed(previous: Decision, new: Decision) -> bool:
+    """Whether a fresh decide() result differs enough from the last
+    recorded Decision for the same category to be worth logging as a new
+    one — a verdict change is always material; a confidence change only
+    counts once it clears MATERIALITY_THRESHOLD, so continuous evidence-
+    freshness decay between ticks doesn't spam a new Decision every cycle."""
+    if previous.verdict != new.verdict:
+        return True
+    if previous.confidence is None and new.confidence is None:
+        return False
+    if previous.confidence is None or new.confidence is None:
+        return True
+    return abs(previous.confidence - new.confidence) >= MATERIALITY_THRESHOLD
 
 
 def decide_all(knowledge: KnowledgeBase, memory: BrainMemory, kpis: KPIRegistry) -> list[Decision]:

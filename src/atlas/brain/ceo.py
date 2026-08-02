@@ -2,12 +2,14 @@ from atlas.brain.affiliate_intelligence_advance import advance_affiliate_intelli
 from atlas.brain.affiliate_pipeline_advance import advance_affiliate_pipeline
 from atlas.brain.content_factory_advance import advance_content_factory
 from atlas.brain.creative_agent_advance import advance_creative_agent
+from atlas.brain.decision_apply import apply_decision
+from atlas.brain.decision_engine import decide_all, has_materially_changed
+from atlas.brain.decisions import DecisionLog
 from atlas.brain.delegator import Delegator, is_structural
 from atlas.brain.editorial_review_advance import advance_editorial_review
 from atlas.brain.publishing_gateway_advance import advance_publishing_gateway
 from atlas.brain.improvement import propose_improvements
 from atlas.brain.intake import absorb_opportunities
-from atlas.brain.intelligence_advance import advance_intelligence
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.kpi_intake import record_revenue
@@ -45,6 +47,7 @@ class CEOBrain:
         reporter: Reporter | None = None,
         strategist: Strategist | None = None,
         knowledge: KnowledgeBase | None = None,
+        decisions: DecisionLog | None = None,
     ):
         self.memory = memory if memory is not None else BrainMemory()
         self.registry = registry if registry is not None else Registry()
@@ -54,6 +57,7 @@ class CEOBrain:
         self.reporter = reporter if reporter is not None else Reporter()
         self.strategist = strategist if strategist is not None else SimpleStrategist()
         self.knowledge = knowledge if knowledge is not None else KnowledgeBase()
+        self.decisions = decisions if decisions is not None else DecisionLog()
         self.kpis = KPIRegistry(self.memory)
         self.delegator = Delegator(self.memory)
         self.monitor = Monitor()
@@ -97,11 +101,7 @@ class CEOBrain:
         for opportunity_task in absorb_opportunities(self.memory.tasks(), self.registry, self.memory, self.knowledge):
             self.memory.save_task(opportunity_task)
 
-        intelligence_goals, intelligence_tasks = advance_intelligence(self.knowledge, self.memory, self.kpis)
-        for goal in intelligence_goals:
-            self.memory.save_goal(goal)
-        for task in intelligence_tasks:
-            self.memory.save_task(task)
+        self._decide_and_apply()
 
         for continuation_task in advance_recruitment_pipeline(self.memory.tasks(), self.registry, self.memory):
             self.memory.save_task(continuation_task)
@@ -125,6 +125,32 @@ class CEOBrain:
             self.memory.save_task(publishing_task)
 
         return self.memory.tasks()
+
+    def _decide_and_apply(self) -> None:
+        # The Decision Engine's only caller: decide_all() computes a fresh
+        # verdict per evidenced category every tick — no caching, so this
+        # is the entire mechanism behind "nothing is permanently true"
+        # (standing architecture, 2026-08-02). A verdict is only persisted
+        # (and, if it means "invest"/"propose_capability", acted on) when
+        # it's materially different from what's already on record — the
+        # same anti-thrash discipline Strategist already applies to
+        # reallocation, so recency_score's continuous decay between ticks
+        # doesn't spam a new Decision every 30 minutes with nothing behind
+        # it.
+        for decision in decide_all(self.knowledge, self.memory, self.kpis):
+            previous = self.decisions.latest_for_category(decision.category)
+            if previous is not None:
+                if not has_materially_changed(previous, decision):
+                    continue
+                decision.superseded_id = previous.id
+
+            goal, task = apply_decision(decision)
+            if goal is not None:
+                self.memory.save_goal(goal)
+            if task is not None:
+                self.memory.save_task(task)
+
+            self.decisions.save_decision(decision)
 
     def _risk_gate_and_delegate(self, task: Task) -> None:
         decision = self.risk_policy.evaluate(task)

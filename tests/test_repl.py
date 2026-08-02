@@ -1,4 +1,5 @@
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.decisions import DecisionLog
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Task
@@ -12,6 +13,7 @@ def _brain(tmp_path):
         memory=BrainMemory(tmp_path / "brain.json"),
         registry=Registry(store=JSONStore(tmp_path / "state.json")),
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
+        decisions=DecisionLog(tmp_path / "decisions.json"),
     )
 
 

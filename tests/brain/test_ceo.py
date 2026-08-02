@@ -1,4 +1,5 @@
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.decisions import DecisionLog
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Finding, Goal, Task
@@ -11,6 +12,7 @@ def _brain(tmp_path):
         memory=BrainMemory(tmp_path / "brain.json"),
         registry=Registry(store=JSONStore(tmp_path / "state.json")),
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
+        decisions=DecisionLog(tmp_path / "decisions.json"),
     )
 
 
@@ -469,3 +471,34 @@ def test_tick_auto_promotes_a_well_evidenced_category_into_a_real_goal_and_dispa
 
     brain.tick()  # a third tick must not create a second goal for the same category
     assert len([g for g in brain.memory.goals() if g.engine_id == "intelligence_digital_product"]) == 1
+
+
+def test_decision_engine_reopens_only_on_material_evidence_change(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    brain = _brain(tmp_path)
+    brain.knowledge.save_finding(
+        Finding(source="research", category="ugc", description="signal 1", evidence="https://example.com/1")
+    )
+
+    brain.tick()  # only 1 independent source: insufficient_evidence, recorded once
+
+    ugc_decisions = [d for d in brain.decisions.decisions() if d.category == "ugc"]
+    assert len(ugc_decisions) == 1
+    assert ugc_decisions[0].verdict == "insufficient_evidence"
+
+    brain.tick()  # nothing new happened — must NOT log a second, identical Decision
+    ugc_decisions = [d for d in brain.decisions.decisions() if d.category == "ugc"]
+    assert len(ugc_decisions) == 1
+
+    # Real new evidence arrives — this is what "nothing is permanently
+    # true, reopen on material evidence change" actually means in practice.
+    brain.knowledge.save_finding(
+        Finding(source="research", category="ugc", description="signal 2", evidence="https://example.com/2")
+    )
+    brain.tick()  # now 2 independent sources: verdict changes to propose_capability (no ugc channel exists)
+
+    ugc_decisions = sorted((d for d in brain.decisions.decisions() if d.category == "ugc"), key=lambda d: d.created_at)
+    assert len(ugc_decisions) == 2
+    assert ugc_decisions[0].verdict == "insufficient_evidence"
+    assert ugc_decisions[1].verdict == "propose_capability"
+    assert ugc_decisions[1].superseded_id == ugc_decisions[0].id  # the reopening is itself traceable

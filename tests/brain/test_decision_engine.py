@@ -1,8 +1,8 @@
-from atlas.brain.decision_engine import decide, decide_all
+from atlas.brain.decision_engine import decide, decide_all, has_materially_changed
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.memory import BrainMemory
-from atlas.brain.models import Finding, Goal, Task
+from atlas.brain.models import Decision, Finding, Goal, Task
 
 
 def _kb(tmp_path):
@@ -129,6 +129,45 @@ def test_decide_is_pure_and_recomputes_fresh_every_call(tmp_path):
     kb.save_finding(_sourced_finding("digital_product", 2))
     second = decide("digital_product", kb, memory, kpis)
     assert second.verdict == "invest"  # same call, same category, different answer — no caching
+
+
+def _decision(verdict="invest", confidence=0.5):
+    return Decision(category="affiliate", verdict=verdict, confidence=confidence, factors={})
+
+
+def test_verdict_change_is_always_material():
+    previous = _decision(verdict="insufficient_evidence", confidence=None)
+    new = _decision(verdict="invest", confidence=0.5)
+
+    assert has_materially_changed(previous, new) is True
+
+
+def test_tiny_confidence_drift_is_not_material():
+    previous = _decision(confidence=0.700)
+    new = _decision(confidence=0.705)  # e.g. recency decay between ticks, not new evidence
+
+    assert has_materially_changed(previous, new) is False
+
+
+def test_large_confidence_shift_is_material():
+    previous = _decision(confidence=0.700)
+    new = _decision(confidence=0.500)  # e.g. a new contradicting finding arrived
+
+    assert has_materially_changed(previous, new) is True
+
+
+def test_both_none_confidence_is_not_material():
+    previous = _decision(verdict="insufficient_evidence", confidence=None)
+    new = _decision(verdict="insufficient_evidence", confidence=None)
+
+    assert has_materially_changed(previous, new) is False
+
+
+def test_confidence_becoming_measurable_is_material():
+    previous = _decision(verdict="insufficient_evidence", confidence=None)
+    new = _decision(verdict="insufficient_evidence", confidence=0.3)
+
+    assert has_materially_changed(previous, new) is True
 
 
 def test_decide_all_covers_every_sourced_category(tmp_path):
