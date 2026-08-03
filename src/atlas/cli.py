@@ -10,7 +10,7 @@ from atlas.brain.ceo import CEOBrain
 from atlas.brain.confidence import confidence_score, rank_by_confidence
 from atlas.brain.explain import explain_opportunity
 from atlas.brain.console import build_console_view, format_console_view
-from atlas.brain.kpi_intake import record_manual_cost, record_manual_revenue
+from atlas.brain.kpi_intake import record_manual_cost, record_manual_refund, record_manual_revenue, record_manual_settlement
 from atlas.brain.models import Finding, Task
 from atlas.core.registry import Registry, UnsupportedVerb, VERBS
 from atlas.app import run_app
@@ -190,6 +190,9 @@ def build_parser() -> argparse.ArgumentParser:
     revenue_record.add_argument("package_id")
     revenue_record.add_argument("amount", type=float)
     revenue_record.add_argument("--cost", type=float, default=None)
+    revenue_record.add_argument("--provider", default="", help="which platform this conversion came from, e.g. digistore24")
+    revenue_record.add_argument("--evidence", default="", help="what proves this happened, e.g. a dashboard screenshot reference or URL")
+    revenue_record.add_argument("--document", default="", dest="document_ref", help="a stored invoice/receipt reference, if one exists")
 
     cost_parser = affiliate_sub.add_parser("cost", help="record real spend against a goal")
     cost_sub = cost_parser.add_subparsers(dest="cost_command", required=True)
@@ -198,6 +201,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cost_record.add_argument("package_id")
     cost_record.add_argument("amount", type=float)
+    cost_record.add_argument("--category", default="", help="cost sub-classification, e.g. ad_spend, tool_subscription")
+    cost_record.add_argument("--provider", default="")
+    cost_record.add_argument("--evidence", default="")
+    cost_record.add_argument("--document", default="", dest="document_ref")
+
+    fee_parser = affiliate_sub.add_parser("fee", help="record a real platform/processor fee against a goal")
+    fee_sub = fee_parser.add_subparsers(dest="fee_command", required=True)
+    fee_record = fee_sub.add_parser("record", help="record a real fee deducted by a platform or payment processor, against a publish package's goal")
+    fee_record.add_argument("package_id")
+    fee_record.add_argument("amount", type=float)
+    fee_record.add_argument("--category", default="", help="fee sub-classification, e.g. platform_fee, processor_fee")
+    fee_record.add_argument("--provider", default="")
+    fee_record.add_argument("--evidence", default="")
+    fee_record.add_argument("--document", default="", dest="document_ref")
+
+    settlement_parser = affiliate_sub.add_parser("settlement", help="record real cash verified received against a goal")
+    settlement_sub = settlement_parser.add_subparsers(dest="settlement_command", required=True)
+    settlement_record = settlement_sub.add_parser(
+        "record", help="record a real, verified payout received (distinct from a claimed conversion), against a publish package's goal"
+    )
+    settlement_record.add_argument("package_id")
+    settlement_record.add_argument("amount", type=float)
+    settlement_record.add_argument("--provider", default="")
+    settlement_record.add_argument("--evidence", default="", help="what proves the cash was actually received, e.g. a bank statement reference")
+    settlement_record.add_argument("--document", default="", dest="document_ref")
+
+    refund_parser = affiliate_sub.add_parser("refund", help="record a real reversal of previously claimed revenue against a goal")
+    refund_sub = refund_parser.add_subparsers(dest="refund_command", required=True)
+    refund_record = refund_sub.add_parser(
+        "record", help="record a real refund or chargeback that reverses previously claimed revenue, against a publish package's goal"
+    )
+    refund_record.add_argument("package_id")
+    refund_record.add_argument("amount", type=float)
+    refund_record.add_argument("--provider", default="")
+    refund_record.add_argument("--evidence", default="")
+    refund_record.add_argument("--document", default="", dest="document_ref")
 
     creative_parser = subparsers.add_parser("creative", help="Creative Agent brief drafts and real asset attachment")
     creative_sub = creative_parser.add_subparsers(dest="creative_command", required=True)
@@ -571,22 +610,61 @@ def _cmd_affiliate(args: argparse.Namespace) -> None:
 
     elif cmd == "revenue":
         if args.revenue_command == "record":
-            package = PublishingQueueStore().get_package(args.package_id)
-            if not package.goal_id:
-                raise ValueError(f"publish package {args.package_id} has no goal_id — cannot attribute revenue")
+            goal_id = _resolve_package_goal_id(args.package_id, "revenue")
             brain = CEOBrain()
-            record_manual_revenue(package.goal_id, args.amount, args.cost, brain.kpis)
-            print(f"recorded revenue_{package.goal_id} += {args.amount}", end="")
-            print(f", cost_{package.goal_id} += {args.cost}" if args.cost is not None else "")
+            record_manual_revenue(
+                goal_id, args.amount, args.cost, brain.kpis, brain.ledger,
+                provider=args.provider, evidence=args.evidence, document_ref=args.document_ref,
+            )
+            print(f"recorded revenue_{goal_id} += {args.amount}", end="")
+            print(f", cost_{goal_id} += {args.cost}" if args.cost is not None else "")
 
     elif cmd == "cost":
         if args.cost_command == "record":
-            package = PublishingQueueStore().get_package(args.package_id)
-            if not package.goal_id:
-                raise ValueError(f"publish package {args.package_id} has no goal_id — cannot attribute cost")
+            goal_id = _resolve_package_goal_id(args.package_id, "cost")
             brain = CEOBrain()
-            record_manual_cost(package.goal_id, args.amount, brain.kpis)
-            print(f"recorded cost_{package.goal_id} += {args.amount}")
+            record_manual_cost(
+                goal_id, args.amount, brain.kpis, brain.ledger,
+                category=args.category, provider=args.provider, evidence=args.evidence, document_ref=args.document_ref,
+            )
+            print(f"recorded cost_{goal_id} += {args.amount}")
+
+    elif cmd == "fee":
+        if args.fee_command == "record":
+            goal_id = _resolve_package_goal_id(args.package_id, "fee")
+            brain = CEOBrain()
+            record_manual_cost(
+                goal_id, args.amount, brain.kpis, brain.ledger, kind="fee",
+                category=args.category, provider=args.provider, evidence=args.evidence, document_ref=args.document_ref,
+            )
+            print(f"recorded cost_{goal_id} += {args.amount} (fee)")
+
+    elif cmd == "settlement":
+        if args.settlement_command == "record":
+            goal_id = _resolve_package_goal_id(args.package_id, "settlement")
+            brain = CEOBrain()
+            record_manual_settlement(
+                goal_id, args.amount, brain.kpis, brain.ledger,
+                provider=args.provider, evidence=args.evidence, document_ref=args.document_ref,
+            )
+            print(f"recorded settled_{goal_id} += {args.amount}")
+
+    elif cmd == "refund":
+        if args.refund_command == "record":
+            goal_id = _resolve_package_goal_id(args.package_id, "refund")
+            brain = CEOBrain()
+            record_manual_refund(
+                goal_id, args.amount, brain.kpis, brain.ledger,
+                provider=args.provider, evidence=args.evidence, document_ref=args.document_ref,
+            )
+            print(f"recorded revenue_{goal_id} -= {args.amount} (refund)")
+
+
+def _resolve_package_goal_id(package_id: str, purpose: str) -> str:
+    package = PublishingQueueStore().get_package(package_id)
+    if not package.goal_id:
+        raise ValueError(f"publish package {package_id} has no goal_id — cannot attribute {purpose}")
+    return package.goal_id
 
 
 def _cmd_creative(args: argparse.Namespace) -> None:

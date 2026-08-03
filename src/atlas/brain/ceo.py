@@ -13,6 +13,7 @@ from atlas.brain.intake import absorb_opportunities
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.kpi_intake import record_revenue
+from atlas.brain.ledger import Ledger
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Goal, Task, now
 from atlas.brain.monitor import Monitor
@@ -48,6 +49,7 @@ class CEOBrain:
         strategist: Strategist | None = None,
         knowledge: KnowledgeBase | None = None,
         decisions: DecisionLog | None = None,
+        ledger: Ledger | None = None,
     ):
         self.memory = memory if memory is not None else BrainMemory()
         self.registry = registry if registry is not None else Registry()
@@ -58,6 +60,7 @@ class CEOBrain:
         self.strategist = strategist if strategist is not None else SimpleStrategist()
         self.knowledge = knowledge if knowledge is not None else KnowledgeBase()
         self.decisions = decisions if decisions is not None else DecisionLog()
+        self.ledger = ledger if ledger is not None else Ledger()
         self.kpis = KPIRegistry(self.memory)
         self.delegator = Delegator(self.memory)
         self.monitor = Monitor()
@@ -157,7 +160,7 @@ class CEOBrain:
         if not decision.requires_approval:
             task.transition("prioritized", f"score={task.priority_score}")
             result = self.delegator.delegate(task, self.registry)
-            record_revenue(task, result, self.kpis)
+            record_revenue(task, result, self.kpis, self.ledger)
             return
 
         if is_structural(task.category):
@@ -223,7 +226,7 @@ class CEOBrain:
         else:
             task.transition("ready", "approved by owner")
             result = self.delegator.delegate(task, self.registry)
-            record_revenue(task, result, self.kpis)
+            record_revenue(task, result, self.kpis, self.ledger)
         self.memory.save_task(task)
         return task
 

@@ -1,6 +1,7 @@
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.decisions import DecisionLog
 from atlas.brain.knowledge import KnowledgeBase
+from atlas.brain.ledger import Ledger
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Finding, Goal, Task
 from atlas.core.registry import Registry
@@ -13,6 +14,7 @@ def _brain(tmp_path):
         registry=Registry(store=JSONStore(tmp_path / "state.json")),
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
         decisions=DecisionLog(tmp_path / "decisions.json"),
+        ledger=Ledger(tmp_path / "ledger.json"),
     )
 
 

@@ -1,5 +1,6 @@
 from atlas.assets.publishing_gateway.models import PublishPackage
 from atlas.assets.publishing_gateway.store import PublishingQueueStore
+from atlas.brain.ledger import Ledger
 from atlas.brain.memory import BrainMemory
 from atlas.cli import main
 
@@ -411,3 +412,65 @@ def test_affiliate_cost_record_rejects_a_package_with_no_goal_id(tmp_path, monke
 
     assert exit_code == 1
     assert "no goal_id" in capsys.readouterr().err
+
+
+def test_affiliate_fee_record_accumulates_onto_cost(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    store = PublishingQueueStore()
+    package = PublishPackage(platform="TikTok", title="t", description="d", cta="c", status="PUBLISHED", goal_id="goal-a")
+    store.save_package(package)
+
+    main(["affiliate", "fee", "record", package.id, "12", "--category", "platform_fee"])
+    capsys.readouterr()
+
+    main(["brain", "kpi", "list"])
+    out = capsys.readouterr().out
+    assert "cost_goal-a\t12.0" in out
+
+
+def test_affiliate_settlement_record_accumulates_a_separate_series(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    store = PublishingQueueStore()
+    package = PublishPackage(platform="TikTok", title="t", description="d", cta="c", status="PUBLISHED", goal_id="goal-a")
+    store.save_package(package)
+
+    main(["affiliate", "revenue", "record", package.id, "150"])
+    capsys.readouterr()
+    main(["affiliate", "settlement", "record", package.id, "150", "--evidence", "bank statement"])
+    capsys.readouterr()
+
+    main(["brain", "kpi", "list"])
+    out = capsys.readouterr().out
+    assert "revenue_goal-a\t150.0" in out
+    assert "settled_goal-a\t150.0" in out
+
+
+def test_affiliate_refund_record_decrements_claimed_revenue(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    store = PublishingQueueStore()
+    package = PublishPackage(platform="TikTok", title="t", description="d", cta="c", status="PUBLISHED", goal_id="goal-a")
+    store.save_package(package)
+
+    main(["affiliate", "revenue", "record", package.id, "150"])
+    capsys.readouterr()
+    main(["affiliate", "refund", "record", package.id, "50"])
+    capsys.readouterr()
+
+    main(["brain", "kpi", "list"])
+    out = capsys.readouterr().out
+    assert "revenue_goal-a\t100.0" in out
+
+
+def test_affiliate_revenue_record_writes_a_ledger_entry(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    store = PublishingQueueStore()
+    package = PublishPackage(platform="TikTok", title="t", description="d", cta="c", status="PUBLISHED", goal_id="goal-a")
+    store.save_package(package)
+
+    main(["affiliate", "revenue", "record", package.id, "150", "--provider", "digistore24"])
+    capsys.readouterr()
+
+    entries = Ledger().entries_for_goal("goal-a")
+    assert len(entries) == 1
+    assert entries[0].kind == "revenue_claimed"
+    assert entries[0].provider == "digistore24"

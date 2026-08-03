@@ -31,12 +31,19 @@ def roi(goal: Goal, kpis: KPIRegistry) -> float | None:
 def goal_cash_flow(goals: list[Goal], kpis: KPIRegistry) -> list[dict]:
     """One entry per goal with at least revenue or cost measured — the
     shared shape used by both the executive report (Reporter) and the live
-    console (atlas console / REPL status), so the two never drift apart."""
+    console (atlas console / REPL status), so the two never drift apart.
+
+    `settled` (real cash verified received, from record_manual_settlement())
+    is included for visibility alongside `revenue` (claimed) — deliberately
+    not blended into `profit`/`roi`, which stay on the claimed basis
+    confidence_score() already reads; a goal can show real profit on paper
+    while `settled` reveals none of it has actually been paid out yet."""
     entries = []
     for goal in goals:
         revenue = kpis.latest(f"revenue_{goal.id}")
         cost = kpis.latest(f"cost_{goal.id}")
-        if revenue is None and cost is None:
+        settled = kpis.latest(f"settled_{goal.id}")
+        if revenue is None and cost is None and settled is None:
             continue
         entries.append(
             {
@@ -44,6 +51,7 @@ def goal_cash_flow(goals: list[Goal], kpis: KPIRegistry) -> list[dict]:
                 "description": goal.description,
                 "revenue": revenue,
                 "cost": cost,
+                "settled": settled,
                 "profit": profit(goal, kpis),
                 "roi": roi(goal, kpis),
             }

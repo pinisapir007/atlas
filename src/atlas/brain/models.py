@@ -150,6 +150,48 @@ class Decision:
 
 
 @dataclass
+class LedgerEntry:
+    """One immutable record of a real financial event, spanning the full
+    lifecycle a business transaction moves through: revenue is claimed, cash
+    is settled, a fee is deducted, a refund reverses some or all of it.
+    Never mutated — a correction is a new entry (kind="refund"), never an
+    edit to a past one, the same append-only discipline DecisionLog already
+    uses for Decisions.
+
+    Purely additive to KPIRegistry's revenue_<goal_id>/cost_<goal_id>/
+    settled_<goal_id> aggregates: recording a LedgerEntry never replaces the
+    accumulate-onto-the-running-total behavior kpi_intake.py already has —
+    cashflow.py/confidence.py keep reading those series unchanged. This is
+    the detail/audit layer underneath that aggregate, not a second decision
+    mechanism.
+
+    Deliberately generic across every current and future platform
+    (Digistore24, Amazon, YouTube, TikTok, Shopify, Etsy, PayPal, Wise,
+    Stripe, a bank account, or "" for a founder-attested/manual event) via
+    `provider` — orthogonal to `kind`, the same relationship Finding.provider
+    already has to Finding.category. A new platform never needs a new
+    LedgerEntry field or a new kind.
+    """
+
+    goal_id: str
+    kind: str  # "revenue_claimed" | "cash_settled" | "cost" | "fee" | "refund"
+    amount: float
+    # Correlates every entry belonging to the same real-world transaction
+    # across its lifecycle (claim -> settlement -> fee -> refund) when one
+    # real ID is actually known (e.g. a future provider's own order/payout
+    # ID). "" for founder-reported entries today — a payout is often a
+    # batch across multiple sales, so inventing a one-to-one link here
+    # would be a fabricated correlation, not a real one.
+    transaction_id: str = ""
+    provider: str = ""  # which platform/account this event came from
+    category: str = ""  # sub-classification for cost/fee entries, e.g. "commission", "ad_spend", "platform_fee"
+    evidence: str = ""  # what proves this happened — never fabricated, "" when unverified
+    document_ref: str = ""  # pointer to a stored invoice/receipt/statement, when one exists
+    id: str = field(default_factory=lambda: new_id("ledger"))
+    created_at: str = field(default_factory=now)
+
+
+@dataclass
 class Proposal:
     """A structural decision ATLAS wants to make but cannot execute itself:
     creating an asset, recruiting an agent, or redesigning part of the
