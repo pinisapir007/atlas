@@ -21,9 +21,9 @@ def _brain(tmp_path):
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
         decisions=DecisionLog(tmp_path / "decisions.json"),
         ledger=Ledger(tmp_path / "ledger.json"),
-        campaigns=CampaignRegistry(tmp_path / "campaigns.json"),
-        influencers=InfluencerRegistry(tmp_path / "influencers.json"),
-        execution_plans=ExecutionPlanRegistry(tmp_path / "execution_plans.json"),
+        campaigns=CampaignRegistry(tmp_path / ".atlas" / "campaigns.json"),
+        influencers=InfluencerRegistry(tmp_path / ".atlas" / "influencers.json"),
+        execution_plans=ExecutionPlanRegistry(tmp_path / ".atlas" / "execution_plans.json"),
         affiliate_store=AffiliateStore(tmp_path / ".atlas" / "affiliate_intelligence.json"),
     )
 
@@ -580,6 +580,45 @@ def test_tick_bridges_a_decision_engine_goal_with_a_real_selected_product_into_a
     # this same real opportunity — that's the whole point of the guard.
     content_factory_tasks = [t for t in brain.memory.tasks() if t.category == "content_factory"]
     assert content_factory_tasks == []
+
+
+def test_approved_campaign_review_task_dispatches_to_the_real_campaign_execution_agent(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    brain = _brain(tmp_path)
+    goal = Goal(description="Pursue affiliate opportunities (Decision Engine: 2 independently-sourced findings)", engine_id="intelligence_affiliate")
+    brain.memory.save_goal(goal)
+    from atlas.assets.affiliate_department.models import AffiliateOpportunity
+    brain.affiliate_store.save_opportunity(
+        AffiliateOpportunity(product_name="KetoDNA", description="a real product", goal_id=goal.id, stage="selected_for_marketing")
+    )
+    influencer = DigitalInfluencer(identity=IdentityProfile(name="Mira"), categories=["affiliate"])
+    brain.influencers.save_influencer(influencer)
+    from atlas.influencer.production import add_template
+    add_template(influencer.id, "hook", "h1", "Nobody tells you this about {product_name}...", brain.influencers)
+    add_template(influencer.id, "cta", "c1", "Try {product_name} today.", brain.influencers)
+    brain.tick()
+
+    campaign = brain.campaigns.campaigns()[0]
+    plan = brain.execution_plans.plans_for_campaign(campaign.id)[0]
+    review_step = next(s for s in plan.steps if s.kind == "request_founder_review")
+
+    approved = brain.approve(review_step.task_id)
+    assert approved.status == "delegated"
+    assert approved.assigned_asset_id == "campaign_execution"  # matched by category, not an arbitrary fallback asset
+
+    brain.tick()  # Monitor.sync() resolves "delegated" -> "done" on the next cycle, same as every other task
+
+    resolved = brain.memory.get_task(review_step.task_id)
+    assert resolved.status == "done"
+    # The real, intentional asset handled it — not an arbitrary Triggerable
+    # fallback (the bug this asset exists to fix) — and its report()
+    # honestly reflects the real, still-active campaign (report() is
+    # necessarily aggregate/task-agnostic, the same shape every other
+    # asset's report() already has — it can't echo back run()'s
+    # per-task next_step message, which is available immediately at
+    # dispatch time instead).
+    assert resolved.assigned_asset_id == "campaign_execution"
+    assert campaign.id in resolved.history[-1]["reason"]
 
 
 def test_tick_leaves_the_old_content_factory_chain_untouched_when_no_influencer_is_registered(tmp_path, monkeypatch):

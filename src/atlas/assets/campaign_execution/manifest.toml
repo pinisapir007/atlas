@@ -1,0 +1,10 @@
+id = "campaign_execution"
+name = "Campaign Execution"
+kind = "operational_agent"
+description = "The real hand-off point for an approved Campaign's request_founder_review Task -- acknowledges the founder's approval and returns the concrete next step (manual publish, then record real results). No real publishing integration exists yet; this agent never claims one happened."
+owner = "atlas"
+tags = ["campaign", "execution"]
+entrypoint = "atlas.assets.campaign_execution.agent:CampaignExecutionAgent"
+
+[config]
+categories = ["campaign_execution"]

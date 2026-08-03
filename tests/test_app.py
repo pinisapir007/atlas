@@ -20,9 +20,9 @@ def _brain(tmp_path):
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
         decisions=DecisionLog(tmp_path / "decisions.json"),
         ledger=Ledger(tmp_path / "ledger.json"),
-        campaigns=CampaignRegistry(tmp_path / "campaigns.json"),
-        influencers=InfluencerRegistry(tmp_path / "influencers.json"),
-        execution_plans=ExecutionPlanRegistry(tmp_path / "execution_plans.json"),
+        campaigns=CampaignRegistry(tmp_path / ".atlas" / "campaigns.json"),
+        influencers=InfluencerRegistry(tmp_path / ".atlas" / "influencers.json"),
+        execution_plans=ExecutionPlanRegistry(tmp_path / ".atlas" / "execution_plans.json"),
         affiliate_store=AffiliateStore(tmp_path / ".atlas" / "affiliate_intelligence.json"),
     )
 
