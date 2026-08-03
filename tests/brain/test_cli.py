@@ -474,3 +474,67 @@ def test_affiliate_revenue_record_writes_a_ledger_entry(tmp_path, monkeypatch, c
     assert len(entries) == 1
     assert entries[0].kind == "revenue_claimed"
     assert entries[0].provider == "digistore24"
+
+
+def test_influencer_create_and_list(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(
+        ["influencer", "create", "--name", "Mira", "--niche", "fitness", "--personality", "energetic",
+         "--category", "affiliate", "--category", "digital_product"]
+    )
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Mira" in out
+    assert "affiliate,digital_product" in out
+
+    main(["influencer", "list"])
+    list_out = capsys.readouterr().out
+    assert "Mira" in list_out
+    assert "active" in list_out
+
+
+def test_influencer_show_reflects_asset_and_platform_attachments(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Kai", "--niche", "personal_finance"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    main(["influencer", "asset", "attach", influencer_id, "--type", "script", "--reference", "https://example.com/s1.txt"])
+    capsys.readouterr()
+    main(["influencer", "platform", "add", influencer_id, "--platform", "TikTok", "--handle", "@kai.money"])
+    capsys.readouterr()
+
+    main(["influencer", "show", influencer_id])
+    out = capsys.readouterr().out
+
+    assert "Kai" in out
+    assert "https://example.com/s1.txt" in out
+    assert "@kai.money" in out
+
+
+def test_influencer_metric_record_and_rank(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    main(["influencer", "metric", "record", influencer_id, "followers", "5000"])
+    capsys.readouterr()
+
+    exit_code = main(["influencer", "rank", "affiliate"])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert influencer_id in out
+    assert "1/3 evidence factors" in out
+
+
+def test_influencer_rank_reports_no_match_for_an_untagged_category(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
+    capsys.readouterr()
+
+    main(["influencer", "rank", "youtube"])
+    out = capsys.readouterr().out
+
+    assert "no influencer tagged" in out

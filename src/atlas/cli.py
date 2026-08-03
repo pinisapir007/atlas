@@ -14,6 +14,10 @@ from atlas.brain.kpi_intake import record_manual_cost, record_manual_refund, rec
 from atlas.brain.models import Finding, Task
 from atlas.core.registry import Registry, UnsupportedVerb, VERBS
 from atlas.app import run_app
+from atlas.influencer.models import DigitalInfluencer, IdentityProfile
+from atlas.influencer.performance import record_metric
+from atlas.influencer.ranking import rank_influencers
+from atlas.influencer.registry import InfluencerRegistry, add_platform_target, attach_asset
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -247,6 +251,49 @@ def build_parser() -> argparse.ArgumentParser:
     creative_attach.add_argument("--type", required=True, dest="asset_type", choices=["image", "short_video"])
     creative_attach.add_argument("--reference", required=True, help="a real file path or URL to the produced asset")
 
+    influencer_parser = subparsers.add_parser("influencer", help="Digital Influencer Studio: reusable AI-presenter personas")
+    influencer_sub = influencer_parser.add_subparsers(dest="influencer_command", required=True)
+
+    influencer_create = influencer_sub.add_parser("create", help="create a new digital influencer persona")
+    influencer_create.add_argument("--name", required=True)
+    influencer_create.add_argument("--language", default="")
+    influencer_create.add_argument("--niche", default="")
+    influencer_create.add_argument("--personality", default="")
+    influencer_create.add_argument("--bio", default="")
+    influencer_create.add_argument(
+        "--category", action="append", default=[], dest="categories",
+        help="a business category this influencer can be assigned to (repeatable), e.g. --category affiliate",
+    )
+
+    influencer_sub.add_parser("list", help="list every digital influencer")
+
+    influencer_show = influencer_sub.add_parser("show", help="show one digital influencer's full profile")
+    influencer_show.add_argument("influencer_id")
+
+    influencer_asset_parser = influencer_sub.add_parser("asset", help="manage an influencer's real asset library")
+    influencer_asset_sub = influencer_asset_parser.add_subparsers(dest="influencer_asset_command", required=True)
+    influencer_asset_attach = influencer_asset_sub.add_parser("attach", help="record a real asset (script/image/video/audio) for an influencer")
+    influencer_asset_attach.add_argument("influencer_id")
+    influencer_asset_attach.add_argument("--type", required=True, dest="asset_type", choices=["script", "image", "video", "audio"])
+    influencer_asset_attach.add_argument("--reference", required=True, help="a real file path or URL to the asset")
+
+    influencer_platform_parser = influencer_sub.add_parser("platform", help="declare a platform this influencer targets")
+    influencer_platform_sub = influencer_platform_parser.add_subparsers(dest="influencer_platform_command", required=True)
+    influencer_platform_add = influencer_platform_sub.add_parser("add", help="declare a platform target — a structural fact, never a publish action")
+    influencer_platform_add.add_argument("influencer_id")
+    influencer_platform_add.add_argument("--platform", required=True, help="e.g. TikTok, YouTube, Instagram")
+    influencer_platform_add.add_argument("--handle", default="")
+
+    influencer_metric_parser = influencer_sub.add_parser("metric", help="record real performance data for an influencer")
+    influencer_metric_sub = influencer_metric_parser.add_subparsers(dest="influencer_metric_command", required=True)
+    influencer_metric_record = influencer_metric_sub.add_parser("record", help="record a real performance reading (followers, views, engagement_rate, or any platform-specific metric)")
+    influencer_metric_record.add_argument("influencer_id")
+    influencer_metric_record.add_argument("metric_name")
+    influencer_metric_record.add_argument("value", type=float)
+
+    influencer_rank = influencer_sub.add_parser("rank", help="rank influencers eligible for a business category by real performance evidence")
+    influencer_rank.add_argument("category")
+
     return parser
 
 
@@ -285,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
             _cmd_affiliate(args)
         elif args.command == "creative":
             _cmd_creative(args)
+        elif args.command == "influencer":
+            _cmd_influencer(args)
         else:
             _cmd_verb(args.command, args.asset)
     except (KeyError, UnsupportedVerb, ValueError) as exc:
@@ -674,6 +723,61 @@ def _cmd_creative(args: argparse.Namespace) -> None:
         agent = CreativeAgent()
         opportunity = agent.attach_real_asset(args.opportunity_id, args.asset_type, args.reference)
         print(f"{opportunity.id}\t{opportunity.creative_assets['status']}\t{opportunity.creative_assets['reference']}")
+
+
+def _cmd_influencer(args: argparse.Namespace) -> None:
+    cmd = args.influencer_command
+    registry = InfluencerRegistry()
+
+    if cmd == "create":
+        influencer = DigitalInfluencer(
+            identity=IdentityProfile(
+                name=args.name, language=args.language, niche=args.niche, personality=args.personality, bio=args.bio
+            ),
+            categories=args.categories,
+        )
+        registry.save_influencer(influencer)
+        print(f"{influencer.id}\t{influencer.identity.name}\t{influencer.identity.niche}\t{','.join(influencer.categories)}")
+
+    elif cmd == "list":
+        for influencer in registry.influencers():
+            print(f"{influencer.id}\t{influencer.identity.name}\t{influencer.status}\t{','.join(influencer.categories)}")
+
+    elif cmd == "show":
+        influencer = registry.get_influencer(args.influencer_id)
+        print(f"{influencer.id}\t{influencer.identity.name}\t{influencer.status}")
+        print(f"  Identity: language={influencer.identity.language} niche={influencer.identity.niche} personality={influencer.identity.personality}")
+        print(f"  Voice: {influencer.voice.description or '(not set)'} (provider={influencer.voice.provider or 'none'})")
+        print(f"  Visual: {influencer.visual.description or '(not set)'} (provider={influencer.visual.provider or 'none'})")
+        print(f"  Content style: tone={influencer.content_style.tone or '(not set)'} formats={influencer.content_style.format_preferences}")
+        print(f"  Audience: {influencer.audience.description or '(not set)'} estimated_size={influencer.audience.estimated_size}")
+        print(f"  Categories: {', '.join(influencer.categories) or '(none)'}")
+        for target in influencer.platform_targets:
+            print(f"  Platform: {target.platform}\t{target.handle or '(no handle)'}\t{target.status}")
+        for asset in influencer.asset_library:
+            print(f"  Asset: {asset.asset_type}\t{asset.reference}")
+
+    elif cmd == "asset":
+        if args.influencer_asset_command == "attach":
+            influencer = attach_asset(args.influencer_id, args.asset_type, args.reference, registry)
+            print(f"{influencer.id}\tasset library now has {len(influencer.asset_library)} entrie(s)")
+
+    elif cmd == "platform":
+        if args.influencer_platform_command == "add":
+            influencer = add_platform_target(args.influencer_id, args.platform, args.handle, registry)
+            print(f"{influencer.id}\t{args.platform}\t{args.handle or '(no handle)'}\tplanned")
+
+    elif cmd == "metric":
+        if args.influencer_metric_command == "record":
+            record_metric(args.influencer_id, args.metric_name, args.value, CEOBrain().kpis)
+            print(f"recorded {args.metric_name}_{args.influencer_id} = {args.value}")
+
+    elif cmd == "rank":
+        ranked = rank_influencers(args.category, registry, CEOBrain().kpis)
+        if not ranked:
+            print(f"no influencer tagged for category '{args.category}'")
+        for entry in ranked:
+            print(f"{entry['influencer_id']}\t{entry['factors_available']}/{entry['factors_total']} evidence factors\t{entry['metrics']}")
 
 
 if __name__ == "__main__":
