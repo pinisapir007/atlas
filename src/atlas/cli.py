@@ -14,9 +14,10 @@ from atlas.brain.kpi_intake import record_manual_cost, record_manual_refund, rec
 from atlas.brain.models import Finding, Task
 from atlas.core.registry import Registry, UnsupportedVerb, VERBS
 from atlas.app import run_app
+from atlas.campaign.registry import CampaignRegistry, create_campaign, refresh_confidence
 from atlas.influencer.models import TEMPLATE_KINDS, DigitalInfluencer, IdentityProfile
 from atlas.influencer.performance import record_metric
-from atlas.influencer.production import add_template, assign_product, generate_content_package, templates_of_kind
+from atlas.influencer.production import add_template, generate_campaign_content, templates_of_kind
 from atlas.influencer.ranking import rank_influencers
 from atlas.influencer.registry import InfluencerRegistry, add_platform_target, attach_asset
 
@@ -307,19 +308,38 @@ def build_parser() -> argparse.ArgumentParser:
     influencer_template_list.add_argument("influencer_id")
     influencer_template_list.add_argument("--kind", default=None, choices=sorted(TEMPLATE_KINDS))
 
-    influencer_product_parser = influencer_sub.add_parser("product", help="manage an influencer's product assignments")
-    influencer_product_sub = influencer_product_parser.add_subparsers(dest="influencer_product_command", required=True)
-    influencer_product_assign = influencer_product_sub.add_parser("assign", help="assign a real product/opportunity to an influencer for content production")
-    influencer_product_assign.add_argument("influencer_id")
-    influencer_product_assign.add_argument("--product", required=True, dest="product_name")
-    influencer_product_assign.add_argument("--goal-id", default=None, dest="goal_id")
-    influencer_product_assign.add_argument("--opportunity-id", default=None, dest="opportunity_id")
+    campaign_parser = subparsers.add_parser("campaign", help="Campaign Intelligence Layer: the real business unit ATLAS manages end-to-end")
+    campaign_sub = campaign_parser.add_subparsers(dest="campaign_command", required=True)
 
-    influencer_produce = influencer_sub.add_parser(
-        "produce", help="assemble a content package for an influencer's product assignment from its own template library (no real generation — deterministic assembly only)"
+    campaign_create = campaign_sub.add_parser("create", help="assemble a complete Campaign from real evidence")
+    campaign_create.add_argument("--objective", required=True, dest="business_objective")
+    campaign_create.add_argument("--category", required=True)
+    campaign_create.add_argument("--product", required=True, dest="product_offer")
+    campaign_create.add_argument("--influencer", action="append", required=True, default=[], dest="influencer_ids", help="a DigitalInfluencer id (repeatable)")
+    campaign_create.add_argument("--revenue-goal", type=float, default=None, dest="revenue_goal")
+    campaign_create.add_argument("--target-audience", default="")
+    campaign_create.add_argument("--customer-problem", default="")
+    campaign_create.add_argument("--platform-strategy", default="")
+    campaign_create.add_argument("--content-strategy", default="")
+    campaign_create.add_argument("--content-format", action="append", default=[], dest="content_formats", help="repeatable, e.g. --content-format 'short-form video'")
+    campaign_create.add_argument("--landing-page-strategy", default="")
+    campaign_create.add_argument("--cta-strategy", default="")
+    campaign_create.add_argument("--budget", type=float, default=None)
+    campaign_create.add_argument("--success-kpi", action="append", default=[], dest="success_kpis", help="a real KPI series name this campaign considers success (repeatable)")
+    campaign_create.add_argument("--goal-id", default=None, dest="goal_id")
+
+    campaign_sub.add_parser("list", help="list every campaign")
+
+    campaign_show = campaign_sub.add_parser("show", help="show one campaign's full profile")
+    campaign_show.add_argument("campaign_id")
+
+    campaign_refresh = campaign_sub.add_parser("refresh-confidence", help="recompute a campaign's confidence_score from current evidence")
+    campaign_refresh.add_argument("campaign_id")
+
+    campaign_produce = campaign_sub.add_parser(
+        "produce", help="generate one content package per assigned influencer from the campaign's own template libraries (no real generation — deterministic assembly only)"
     )
-    influencer_produce.add_argument("influencer_id")
-    influencer_produce.add_argument("product_assignment_id")
+    campaign_produce.add_argument("campaign_id")
 
     return parser
 
@@ -361,6 +381,8 @@ def main(argv: list[str] | None = None) -> int:
             _cmd_creative(args)
         elif args.command == "influencer":
             _cmd_influencer(args)
+        elif args.command == "campaign":
+            _cmd_campaign(args)
         else:
             _cmd_verb(args.command, args.asset)
     except (KeyError, UnsupportedVerb, ValueError) as exc:
@@ -785,8 +807,6 @@ def _cmd_influencer(args: argparse.Namespace) -> None:
             print(f"  Asset: {asset.asset_type}\t{asset.reference}")
         for template in influencer.templates:
             print(f"  Template: {template.kind}\t{template.name}\t{template.id}")
-        for assignment in influencer.product_assignments:
-            print(f"  Product assignment: {assignment.product_name}\t{assignment.status}\t{assignment.id}")
 
     elif cmd == "asset":
         if args.influencer_asset_command == "attach":
@@ -820,22 +840,64 @@ def _cmd_influencer(args: argparse.Namespace) -> None:
             for template in templates:
                 print(f"{template.id}\t{template.kind}\t{template.name}\t{template.content}")
 
-    elif cmd == "product":
-        if args.influencer_product_command == "assign":
-            influencer = assign_product(args.influencer_id, args.product_name, registry, goal_id=args.goal_id, opportunity_id=args.opportunity_id)
-            print(f"{influencer.product_assignments[-1].id}\t{args.product_name}\tassigned")
+
+def _cmd_campaign(args: argparse.Namespace) -> None:
+    cmd = args.campaign_command
+    registry = CampaignRegistry()
+    brain = CEOBrain()
+
+    if cmd == "create":
+        campaign = create_campaign(
+            args.business_objective, args.category, args.product_offer, args.influencer_ids,
+            InfluencerRegistry(), brain.knowledge, brain.memory, brain.kpis, registry,
+            revenue_goal=args.revenue_goal, target_audience=args.target_audience, customer_problem=args.customer_problem,
+            platform_strategy=args.platform_strategy, content_strategy=args.content_strategy, content_formats=args.content_formats,
+            landing_page_strategy=args.landing_page_strategy, cta_strategy=args.cta_strategy, budget=args.budget,
+            success_kpis=args.success_kpis, goal_id=args.goal_id,
+        )
+        print(f"{campaign.id}\t{campaign.business_objective}\t{campaign.product_offer}\tconfidence={campaign.confidence_score}")
+
+    elif cmd == "list":
+        for campaign in registry.campaigns():
+            print(f"{campaign.id}\t{campaign.status}\t{campaign.product_offer}\tconfidence={campaign.confidence_score}\tinfluencers={','.join(campaign.influencer_ids)}")
+
+    elif cmd == "show":
+        campaign = registry.get_campaign(args.campaign_id)
+        print(f"{campaign.id}\t{campaign.status}\tconfidence={campaign.confidence_score}")
+        print(f"  Business objective: {campaign.business_objective}")
+        print(f"  Category: {campaign.category}")
+        print(f"  Revenue goal: {campaign.revenue_goal}\tBudget: {campaign.budget}")
+        print(f"  Target audience: {campaign.target_audience or '(not set)'}")
+        print(f"  Customer problem: {campaign.customer_problem or '(not set)'}")
+        print(f"  Product / Offer: {campaign.product_offer or '(not set)'}")
+        print(f"  Digital Influencer(s): {', '.join(campaign.influencer_ids) or '(none)'}")
+        print(f"  Platform strategy: {campaign.platform_strategy or '(not set)'}")
+        print(f"  Content strategy: {campaign.content_strategy or '(not set)'}\tFormats: {campaign.content_formats}")
+        print(f"  Landing page strategy: {campaign.landing_page_strategy or '(not set)'}")
+        print(f"  CTA strategy: {campaign.cta_strategy or '(not set)'}")
+        print(f"  Timeline: {campaign.timeline or '(not set)'}")
+        print(f"  Success KPIs: {campaign.success_kpis or '(none)'}")
+        print(f"  Goal: {campaign.goal_id or '(none)'}")
+        for entry in campaign.learning_history:
+            print(f"  Learning history: {entry}")
+
+    elif cmd == "refresh-confidence":
+        campaign = refresh_confidence(args.campaign_id, brain.knowledge, brain.memory, brain.kpis, registry)
+        print(f"{campaign.id}\tconfidence={campaign.confidence_score}")
 
     elif cmd == "produce":
-        package = generate_content_package(args.influencer_id, args.product_assignment_id, registry)
-        print(f"scripts: {package.scripts}")
-        print(f"hooks: {package.hooks}")
-        print(f"ctas: {package.ctas}")
-        print(f"image_prompts: {package.image_prompts}")
-        print(f"video_prompts: {package.video_prompts}")
-        print(f"voice_prompts: {package.voice_prompts}")
-        print(f"captions: {package.captions}")
-        print(f"landing_page_messages: {package.landing_page_messages}")
-        print(f"missing_kinds: {package.missing_kinds}")
+        packages = generate_campaign_content(args.campaign_id, registry, InfluencerRegistry())
+        for package in packages:
+            print(f"--- influencer {package.influencer_id} ---")
+            print(f"scripts: {package.scripts}")
+            print(f"hooks: {package.hooks}")
+            print(f"ctas: {package.ctas}")
+            print(f"image_prompts: {package.image_prompts}")
+            print(f"video_prompts: {package.video_prompts}")
+            print(f"voice_prompts: {package.voice_prompts}")
+            print(f"captions: {package.captions}")
+            print(f"landing_page_messages: {package.landing_page_messages}")
+            print(f"missing_kinds: {package.missing_kinds}")
 
 
 if __name__ == "__main__":

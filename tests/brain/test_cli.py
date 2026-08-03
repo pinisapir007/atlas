@@ -566,7 +566,7 @@ def test_influencer_template_add_and_list(tmp_path, monkeypatch, capsys):
     assert "{product_name}" in out
 
 
-def test_influencer_product_assign_and_produce_end_to_end(tmp_path, monkeypatch, capsys):
+def test_campaign_create_and_produce_end_to_end(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
     influencer_id = capsys.readouterr().out.strip().split("\t")[0]
@@ -576,14 +576,72 @@ def test_influencer_product_assign_and_produce_end_to_end(tmp_path, monkeypatch,
     main(["influencer", "template", "add", influencer_id, "--kind", "cta", "--name", "c1", "--content", "Try {product_name} today."])
     capsys.readouterr()
 
-    main(["influencer", "product", "assign", influencer_id, "--product", "KetoDNA", "--goal-id", "goal-a"])
-    assignment_out = capsys.readouterr().out
-    assignment_id = assignment_out.strip().split("\t")[0]
+    exit_code = main(
+        ["campaign", "create", "--objective", "grow affiliate revenue", "--category", "affiliate", "--product", "KetoDNA",
+         "--influencer", influencer_id, "--goal-id", "goal-a", "--revenue-goal", "5000", "--budget", "500"]
+    )
+    create_out = capsys.readouterr().out
+    campaign_id = create_out.strip().split("\t")[0]
 
-    exit_code = main(["influencer", "produce", influencer_id, assignment_id])
+    assert exit_code == 0
+    assert "KetoDNA" in create_out
+
+    exit_code = main(["campaign", "produce", campaign_id])
     out = capsys.readouterr().out
 
     assert exit_code == 0
     assert "Nobody tells you this about KetoDNA" in out
     assert "Try KetoDNA today" in out
     assert "'script_template'" in out  # a real, honest gap surfaced in missing_kinds
+
+
+def test_campaign_create_rejects_an_unknown_influencer(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(
+        ["campaign", "create", "--objective", "grow affiliate revenue", "--category", "affiliate", "--product", "KetoDNA",
+         "--influencer", "does-not-exist"]
+    )
+
+    assert exit_code == 1
+    assert "unknown influencer" in capsys.readouterr().err
+
+
+def test_campaign_show_and_refresh_confidence(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(
+        ["campaign", "create", "--objective", "grow affiliate revenue", "--category", "affiliate", "--product", "KetoDNA",
+         "--influencer", influencer_id, "--target-audience", "keto beginners"]
+    )
+    campaign_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    main(["campaign", "show", campaign_id])
+    show_out = capsys.readouterr().out
+    assert "keto beginners" in show_out
+    assert influencer_id in show_out
+
+    main(["brain", "finding", "add", "research", "affiliate", "independent source"])
+    capsys.readouterr()
+    exit_code = main(["campaign", "refresh-confidence", campaign_id])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert campaign_id in out
+
+
+def test_campaign_list_shows_every_campaign(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(["campaign", "create", "--objective", "a", "--category", "affiliate", "--product", "KetoDNA", "--influencer", influencer_id])
+    capsys.readouterr()
+    main(["campaign", "create", "--objective", "b", "--category", "affiliate", "--product", "OtherOffer", "--influencer", influencer_id])
+    capsys.readouterr()
+
+    main(["campaign", "list"])
+    out = capsys.readouterr().out
+
+    assert "KetoDNA" in out
+    assert "OtherOffer" in out

@@ -1,4 +1,5 @@
-from atlas.influencer.models import TEMPLATE_KINDS, ContentPackage, ContentTemplate, DigitalInfluencer, ProductAssignment
+from atlas.campaign.registry import CampaignRegistry
+from atlas.influencer.models import TEMPLATE_KINDS, ContentPackage, ContentTemplate, DigitalInfluencer
 from atlas.influencer.registry import InfluencerRegistry
 
 _PRODUCT_NAME_PLACEHOLDER = "{product_name}"
@@ -23,54 +24,43 @@ def templates_of_kind(influencer: DigitalInfluencer, kind: str) -> list[ContentT
     return [t for t in influencer.templates if t.kind == kind]
 
 
-def assign_product(
-    influencer_id: str,
-    product_name: str,
-    registry: InfluencerRegistry,
-    goal_id: str | None = None,
-    opportunity_id: str | None = None,
-) -> DigitalInfluencer:
-    """Assigns a real product/opportunity to this influencer for content
-    production — a direct, explicit action today. The Decision Engine
-    does not call this yet: that wiring is a separate, later increment
-    (see atlas.influencer package docs in CLAUDE.md) that touches
-    Decision/Goal, both locked, and has no real influencer performance
-    history to base an automatic choice on yet."""
-    influencer = registry.get_influencer(influencer_id)
-    influencer.product_assignments.append(
-        ProductAssignment(product_name=product_name, goal_id=goal_id, opportunity_id=opportunity_id)
-    )
-    registry.save_influencer(influencer)
-    return influencer
+def generate_content_package(
+    campaign_id: str, influencer_id: str, campaign_registry: CampaignRegistry, influencer_registry: InfluencerRegistry
+) -> ContentPackage:
+    """Assembles one influencer's ContentPackage for a Campaign — the
+    Production Layer's real output, generated FROM the Campaign (its
+    product_offer + influencer_ids), never from an isolated per-influencer
+    assignment (2026-08-03, architecture locked): "The Production Layer
+    should generate all required assets from the Campaign, not from
+    isolated product assignments" — the founder's framing, verbatim
+    intent. Call once per influencer in campaign.influencer_ids for a
+    multi-influencer campaign (see generate_campaign_content() below for
+    the composed, all-influencers call).
 
-
-def generate_content_package(influencer_id: str, product_assignment_id: str, registry: InfluencerRegistry) -> ContentPackage:
-    """Assembles a ContentPackage from an influencer's own stored
-    templates for a specific product assignment. Deterministic,
-    template-based assembly only — the same "no LLM, no external API, no
-    image/video/voice generation" boundary content_factory/generator.py
-    already established for the affiliate content chain; this is that
-    same discipline applied per-influencer instead of globally. The one
-    substitution performed is a literal `{product_name}` replacement into
-    each template's content — no other placeholder syntax is
-    interpreted, so a founder's own literal curly braces in a template
-    are never mistaken for a substitution and never raise.
+    Deterministic, template-based assembly only — the same "no LLM, no
+    external API, no image/video/voice generation" boundary
+    content_factory/generator.py already established, applied per-
+    influencer instead of globally. The one substitution performed is a
+    literal `{product_name}` replacement using campaign.product_offer —
+    no other placeholder syntax is interpreted, so a founder's own
+    literal curly braces in a template are never mistaken for a
+    substitution and never raise.
 
     Any TEMPLATE_KINDS this influencer has no template for is listed in
     the returned package's `missing_kinds` — an honest, visible gap, never
     silently omitted or backfilled with a placeholder asset.
     """
-    influencer = registry.get_influencer(influencer_id)
-    assignment = next((a for a in influencer.product_assignments if a.id == product_assignment_id), None)
-    if assignment is None:
-        raise KeyError(f"no such product assignment: {product_assignment_id}")
+    campaign = campaign_registry.get_campaign(campaign_id)
+    if influencer_id not in campaign.influencer_ids:
+        raise ValueError(f"{influencer_id} is not assigned to campaign {campaign_id}")
+    influencer = influencer_registry.get_influencer(influencer_id)
 
     def _filled(kind: str) -> list[str]:
-        return [t.content.replace(_PRODUCT_NAME_PLACEHOLDER, assignment.product_name) for t in templates_of_kind(influencer, kind)]
+        return [t.content.replace(_PRODUCT_NAME_PLACEHOLDER, campaign.product_offer) for t in templates_of_kind(influencer, kind)]
 
     return ContentPackage(
         influencer_id=influencer_id,
-        product_assignment_id=product_assignment_id,
+        campaign_id=campaign_id,
         scripts=_filled("script_template"),
         hooks=_filled("hook"),
         ctas=_filled("cta"),
@@ -81,3 +71,18 @@ def generate_content_package(influencer_id: str, product_assignment_id: str, reg
         landing_page_messages=_filled("landing_page_message"),
         missing_kinds=sorted(kind for kind in TEMPLATE_KINDS if not templates_of_kind(influencer, kind)),
     )
+
+
+def generate_campaign_content(
+    campaign_id: str, campaign_registry: CampaignRegistry, influencer_registry: InfluencerRegistry
+) -> list[ContentPackage]:
+    """Generates one ContentPackage per influencer assigned to this
+    campaign — the composed, whole-campaign call the Production Layer is
+    meant to actually be driven by. A thin loop over
+    generate_content_package(), not a separate assembly mechanism, so
+    there is exactly one place template substitution actually happens."""
+    campaign = campaign_registry.get_campaign(campaign_id)
+    return [
+        generate_content_package(campaign_id, influencer_id, campaign_registry, influencer_registry)
+        for influencer_id in campaign.influencer_ids
+    ]

@@ -7,7 +7,6 @@ from atlas.influencer.models import (
     DigitalInfluencer,
     IdentityProfile,
     PlatformTarget,
-    ProductAssignment,
     VisualAvatarProfile,
     VoiceProfile,
 )
@@ -42,7 +41,6 @@ def test_round_trips_every_sub_profile_and_nested_list(tmp_path):
         audience=AudienceProfile(description="young professionals", target_demographics={"age_range": "25-34"}, estimated_size=50000.0),
         platform_targets=[PlatformTarget(platform="TikTok", handle="@kai.money", status="active")],
         templates=[ContentTemplate(kind="hook", name="h1", content="hook about {product_name}", tags=["finance"])],
-        product_assignments=[ProductAssignment(product_name="BudgetApp", goal_id="goal-a")],
         categories=["affiliate", "digital_product"],
     )
     registry.save_influencer(influencer)
@@ -54,8 +52,6 @@ def test_round_trips_every_sub_profile_and_nested_list(tmp_path):
     assert reloaded.audience.estimated_size == 50000.0
     assert reloaded.templates[0].kind == "hook"
     assert reloaded.templates[0].tags == ["finance"]
-    assert reloaded.product_assignments[0].product_name == "BudgetApp"
-    assert reloaded.product_assignments[0].goal_id == "goal-a"
     assert reloaded.platform_targets[0].platform == "TikTok"
     assert reloaded.platform_targets[0].status == "active"
     assert reloaded.categories == ["affiliate", "digital_product"]
@@ -81,6 +77,17 @@ def test_influencers_lists_every_saved_influencer(tmp_path):
 
     names = {i.identity.name for i in registry.influencers()}
     assert names == {"Mira", "Kai"}
+
+
+def test_from_dict_drops_the_removed_product_assignments_field_for_backward_compatibility(tmp_path):
+    influencer = _influencer()
+    stale_data = influencer.to_dict()
+    stale_data["product_assignments"] = [{"product_name": "old", "id": "assignment-x"}]  # pre-Campaign saved shape
+
+    reloaded = DigitalInfluencer.from_dict(stale_data)
+
+    assert reloaded.identity.name == "Mira"
+    assert not hasattr(reloaded, "product_assignments")
 
 
 def test_missing_influencer_raises_keyerror(tmp_path):

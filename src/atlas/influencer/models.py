@@ -135,29 +135,9 @@ class ContentTemplate:
 
 
 @dataclass
-class ProductAssignment:
-    """A real product/opportunity this influencer has been assigned to
-    produce content for — the "Product assignment" library. `goal_id`/
-    `opportunity_id` link back to the real business record driving this
-    when one exists, never fabricated. Assignment is deliberately a
-    direct, explicit action today (see atlas.influencer.production) —
-    wiring the Decision Engine to assign automatically is a separate,
-    later increment (see atlas.influencer package docs: it touches
-    Decision/Goal, both locked, and has no real performance history to
-    base an automatic choice on yet)."""
-
-    product_name: str
-    goal_id: str | None = None
-    opportunity_id: str | None = None
-    status: str = "assigned"  # assigned | in_production | delivered | cancelled
-    id: str = field(default_factory=lambda: new_id("assignment"))
-    created_at: str = field(default_factory=now)
-
-
-@dataclass
 class ContentPackage:
     """One assembled set of production-ready assets for a specific
-    influencer and a specific product assignment — the Content Production
+    influencer within a specific Campaign — the Content Production
     Layer's output. Deterministic, template-based assembly from the
     influencer's own stored ContentTemplate library (same "no LLM, no
     external API" boundary content_factory/generator.py already
@@ -166,7 +146,15 @@ class ContentPackage:
     production.generate_content_package()), never persisted — the same
     read-only-view shape explain_opportunity() already has, since a
     stored package would silently go stale the moment the influencer's
-    underlying templates change.
+    underlying templates (or the campaign's product_offer) change.
+
+    Generated FROM a Campaign (`campaign_id`), never from an isolated
+    per-influencer assignment (2026-08-03, architecture locked — the
+    now-removed ProductAssignment/`atlas influencer product assign` was
+    superseded by Campaign.product_offer + Campaign.influencer_ids, the
+    same "one real place this relationship lives" discipline this
+    codebase enforces everywhere else, e.g. SUPPORTED_PROVIDERS's
+    removal).
 
     Each field is a list because an influencer may own several templates
     of the same kind; `missing_kinds` names every TEMPLATE_KINDS entry
@@ -175,7 +163,7 @@ class ContentPackage:
     """
 
     influencer_id: str
-    product_assignment_id: str
+    campaign_id: str
     scripts: list[str] = field(default_factory=list)
     hooks: list[str] = field(default_factory=list)
     ctas: list[str] = field(default_factory=list)
@@ -217,15 +205,17 @@ class DigitalInfluencer:
     are different concerns with different mutation patterns (rare
     founder edits vs. frequent real-data updates).
 
-    `templates` and `product_assignments` are the Content Production
-    Layer's ownership (2026-08-03, architecture locked): every reusable
-    production library (script templates, hooks, CTAs, image/video/voice
-    prompts, caption templates, landing-page messaging) an influencer owns
-    lives in `templates` (see TEMPLATE_KINDS), and every real product this
-    influencer has been assigned to produce content for lives in
-    `product_assignments` — both embedded for the same reason
-    platform_targets/asset_library are: no independent lifecycle apart
-    from the influencer they belong to.
+    `templates` is the Content Production Layer's ownership (2026-08-03,
+    architecture locked): every reusable production library (script
+    templates, hooks, CTAs, image/video/voice prompts, caption templates,
+    landing-page messaging) an influencer owns lives here (see
+    TEMPLATE_KINDS) — embedded for the same reason platform_targets/
+    asset_library are: no independent lifecycle apart from the influencer
+    they belong to. Which real product this influencer is producing
+    content for is no longer tracked per-influencer (the removed
+    ProductAssignment) — that relationship now lives once, on the
+    Campaign itself (atlas.campaign.models.Campaign.product_offer +
+    influencer_ids), the unit of work every asset is generated from.
     """
 
     identity: IdentityProfile
@@ -236,7 +226,6 @@ class DigitalInfluencer:
     platform_targets: list[PlatformTarget] = field(default_factory=list)
     asset_library: list[AssetLibraryEntry] = field(default_factory=list)
     templates: list[ContentTemplate] = field(default_factory=list)
-    product_assignments: list[ProductAssignment] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
     status: str = "active"  # active | retired
     id: str = field(default_factory=lambda: new_id("influencer"))
@@ -263,5 +252,5 @@ class DigitalInfluencer:
         data["platform_targets"] = [PlatformTarget(**p) for p in data["platform_targets"]]
         data["asset_library"] = [AssetLibraryEntry(**a) for a in data["asset_library"]]
         data["templates"] = [ContentTemplate(**t) for t in data.get("templates", [])]
-        data["product_assignments"] = [ProductAssignment(**p) for p in data.get("product_assignments", [])]
+        data.pop("product_assignments", None)  # forward-compat: drop the now-removed field from any pre-existing saved influencer
         return DigitalInfluencer(**data)
