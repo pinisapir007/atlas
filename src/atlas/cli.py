@@ -10,7 +10,7 @@ from atlas.brain.ceo import CEOBrain
 from atlas.brain.confidence import confidence_score, rank_by_confidence
 from atlas.brain.explain import explain_opportunity
 from atlas.brain.console import build_console_view, format_console_view
-from atlas.brain.kpi_intake import record_manual_revenue
+from atlas.brain.kpi_intake import record_manual_cost, record_manual_revenue
 from atlas.brain.models import Finding, Task
 from atlas.core.registry import Registry, UnsupportedVerb, VERBS
 from atlas.app import run_app
@@ -190,6 +190,14 @@ def build_parser() -> argparse.ArgumentParser:
     revenue_record.add_argument("package_id")
     revenue_record.add_argument("amount", type=float)
     revenue_record.add_argument("--cost", type=float, default=None)
+
+    cost_parser = affiliate_sub.add_parser("cost", help="record real spend against a goal")
+    cost_sub = cost_parser.add_subparsers(dest="cost_command", required=True)
+    cost_record = cost_sub.add_parser(
+        "record", help="record a real, incurred cost not tied to a single conversion (ad spend, subscriptions, setup), against a publish package's goal"
+    )
+    cost_record.add_argument("package_id")
+    cost_record.add_argument("amount", type=float)
 
     creative_parser = subparsers.add_parser("creative", help="Creative Agent brief drafts and real asset attachment")
     creative_sub = creative_parser.add_subparsers(dest="creative_command", required=True)
@@ -570,6 +578,15 @@ def _cmd_affiliate(args: argparse.Namespace) -> None:
             record_manual_revenue(package.goal_id, args.amount, args.cost, brain.kpis)
             print(f"recorded revenue_{package.goal_id} += {args.amount}", end="")
             print(f", cost_{package.goal_id} += {args.cost}" if args.cost is not None else "")
+
+    elif cmd == "cost":
+        if args.cost_command == "record":
+            package = PublishingQueueStore().get_package(args.package_id)
+            if not package.goal_id:
+                raise ValueError(f"publish package {args.package_id} has no goal_id — cannot attribute cost")
+            brain = CEOBrain()
+            record_manual_cost(package.goal_id, args.amount, brain.kpis)
+            print(f"recorded cost_{package.goal_id} += {args.amount}")
 
 
 def _cmd_creative(args: argparse.Namespace) -> None:

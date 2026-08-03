@@ -382,3 +382,32 @@ def test_affiliate_revenue_record_rejects_a_package_with_no_goal_id(tmp_path, mo
 
     assert exit_code == 1
     assert "no goal_id" in capsys.readouterr().err
+
+
+def test_affiliate_cost_record_accumulates_against_the_packages_goal(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    store = PublishingQueueStore()
+    package = PublishPackage(platform="TikTok", title="t", description="d", cta="c", status="PUBLISHED", goal_id="goal-a")
+    store.save_package(package)
+
+    main(["affiliate", "cost", "record", package.id, "40"])
+    capsys.readouterr()
+    main(["affiliate", "cost", "record", package.id, "10"])
+    capsys.readouterr()
+
+    main(["brain", "kpi", "list"])
+    out = capsys.readouterr().out
+    assert "cost_goal-a\t50.0" in out
+    assert "revenue_goal-a" not in out
+
+
+def test_affiliate_cost_record_rejects_a_package_with_no_goal_id(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    store = PublishingQueueStore()
+    package = PublishPackage(platform="TikTok", title="t", description="d", cta="c", status="PUBLISHED", goal_id=None)
+    store.save_package(package)
+
+    exit_code = main(["affiliate", "cost", "record", package.id, "40"])
+
+    assert exit_code == 1
+    assert "no goal_id" in capsys.readouterr().err

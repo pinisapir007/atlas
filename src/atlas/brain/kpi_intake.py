@@ -76,3 +76,14 @@ def record_manual_revenue(goal_id: str, amount: float, cost: float | None, kpis:
     if cost is not None:
         current_cost = kpis.latest(f"cost_{goal_id}") or 0.0
         kpis.record(f"cost_{goal_id}", current_cost + cost)
+
+
+def record_manual_cost(goal_id: str, amount: float, kpis: KPIRegistry) -> None:
+    """A direct, founder-entered cost reading — for real spend attributable
+    to a goal but not tied to any single conversion (ad spend, a tool
+    subscription, a one-off setup cost), so it doesn't fit
+    record_manual_revenue()'s revenue-plus-optional-cost shape. Same
+    accumulate semantics: each call reports one more real, incurred cost,
+    added onto the goal's running total — never a replacement reading."""
+    current_cost = kpis.latest(f"cost_{goal_id}") or 0.0
+    kpis.record(f"cost_{goal_id}", current_cost + amount)

@@ -1,5 +1,5 @@
 from atlas.brain.kpi import KPIRegistry
-from atlas.brain.kpi_intake import record_manual_revenue, record_revenue
+from atlas.brain.kpi_intake import record_manual_cost, record_manual_revenue, record_revenue
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Task
 
@@ -118,6 +118,16 @@ def test_record_manual_revenue_without_cost_leaves_cost_untouched(tmp_path):
 
     assert kpis.latest("revenue_goal-a") == 100.0
     assert kpis.latest("cost_goal-a") is None
+
+
+def test_record_manual_cost_accumulates_without_touching_revenue(tmp_path):
+    kpis = _kpis(tmp_path)
+
+    record_manual_cost("goal-a", 30.0, kpis)
+    record_manual_cost("goal-a", 10.0, kpis)
+
+    assert kpis.latest("cost_goal-a") == 40.0
+    assert kpis.latest("revenue_goal-a") is None
 
 
 def test_unrecognized_shape_records_nothing(tmp_path):
