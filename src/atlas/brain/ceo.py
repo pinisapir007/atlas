@@ -1,5 +1,8 @@
+from atlas.assets.affiliate_department.store import AffiliateStore
+from atlas.assets.affiliate_intelligence.agent import DEFAULT_STORE_PATH as AFFILIATE_INTELLIGENCE_STORE_PATH
 from atlas.brain.affiliate_intelligence_advance import advance_affiliate_intelligence
 from atlas.brain.affiliate_pipeline_advance import advance_affiliate_pipeline
+from atlas.brain.campaign_advance import advance_decision_driven_campaigns
 from atlas.brain.content_factory_advance import advance_content_factory
 from atlas.brain.creative_agent_advance import advance_creative_agent
 from atlas.brain.decision_apply import apply_decision
@@ -57,6 +60,7 @@ class CEOBrain:
         campaigns: CampaignRegistry | None = None,
         influencers: InfluencerRegistry | None = None,
         execution_plans: ExecutionPlanRegistry | None = None,
+        affiliate_store: AffiliateStore | None = None,
     ):
         self.memory = memory if memory is not None else BrainMemory()
         self.registry = registry if registry is not None else Registry()
@@ -68,6 +72,14 @@ class CEOBrain:
         self.knowledge = knowledge if knowledge is not None else KnowledgeBase()
         self.decisions = decisions if decisions is not None else DecisionLog()
         self.ledger = ledger if ledger is not None else Ledger()
+        # ".atlas/affiliate_intelligence.json" — the shared store file
+        # AffiliateIntelligenceAgent/ContentFactoryAgent/EditorialReviewAgent/
+        # CreativeAgent/PublishingGatewayAgent all already use, and the only
+        # place "selected_for_marketing" is ever set (see
+        # campaign_advance.py) — not affiliate_department.json's own
+        # default, a different file for the separate, placeholder-discovery
+        # chain that never reaches that stage.
+        self.affiliate_store = affiliate_store if affiliate_store is not None else AffiliateStore(AFFILIATE_INTELLIGENCE_STORE_PATH)
         self.campaigns = campaigns if campaigns is not None else CampaignRegistry()
         self.influencers = influencers if influencers is not None else InfluencerRegistry()
         self.execution_plans = execution_plans if execution_plans is not None else ExecutionPlanRegistry()
@@ -125,7 +137,17 @@ class CEOBrain:
         for intelligence_task in advance_affiliate_intelligence(self.memory.tasks(), self.registry, self.memory, self.kpis):
             self.memory.save_task(intelligence_task)
 
-        for content_task in advance_content_factory(self.memory.tasks(), self.registry, self.memory, self.kpis):
+        advance_decision_driven_campaigns(
+            self.memory, self.knowledge, self.kpis, self.influencers, self.campaigns, self.execution_plans, self.affiliate_store
+        )
+
+        # advance_decision_driven_campaigns() runs first (above) so a goal
+        # it claims this same tick is already reflected in self.campaigns
+        # by the time this reads it — the exact ordering that keeps the
+        # old opportunity-driven chain and the new Campaign pipeline from
+        # both picking up the same newly-selected_for_marketing opportunity.
+        claimed_goal_ids = {c.goal_id for c in self.campaigns.campaigns() if c.goal_id}
+        for content_task in advance_content_factory(self.memory.tasks(), self.registry, self.memory, self.kpis, claimed_goal_ids):
             self.memory.save_task(content_task)
 
         for editorial_task in advance_editorial_review(self.memory.tasks(), self.registry, self.memory, self.kpis):

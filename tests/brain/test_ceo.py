@@ -1,3 +1,4 @@
+from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.decisions import DecisionLog
 from atlas.brain.knowledge import KnowledgeBase
@@ -23,6 +24,7 @@ def _brain(tmp_path):
         campaigns=CampaignRegistry(tmp_path / "campaigns.json"),
         influencers=InfluencerRegistry(tmp_path / "influencers.json"),
         execution_plans=ExecutionPlanRegistry(tmp_path / "execution_plans.json"),
+        affiliate_store=AffiliateStore(tmp_path / ".atlas" / "affiliate_intelligence.json"),
     )
 
 
@@ -536,3 +538,64 @@ def test_tick_advances_an_in_progress_campaign_execution_plan(tmp_path, monkeypa
     advanced = brain.execution_plans.get_plan(plan.id)
     verify_step = next(s for s in advanced.steps if s.kind == "verify_readiness")
     assert verify_step.status == "done"
+
+
+def test_tick_bridges_a_decision_engine_goal_with_a_real_selected_product_into_a_running_campaign(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    brain = _brain(tmp_path)
+    # Simulates the real state that would exist after decide() -> invest ->
+    # apply_decision() created this goal, and a founder separately picked a
+    # real product via the existing, unmodified affiliate_intelligence
+    # founder-choice flow (atlas affiliate product add -> approve) — built
+    # directly here rather than replaying every intermediate tick of those
+    # already-tested pipelines.
+    goal = Goal(description="Pursue affiliate opportunities (Decision Engine: 2 independently-sourced findings)", engine_id="intelligence_affiliate")
+    brain.memory.save_goal(goal)
+    from atlas.assets.affiliate_department.models import AffiliateOpportunity
+    brain.affiliate_store.save_opportunity(
+        AffiliateOpportunity(product_name="KetoDNA", description="a real product", goal_id=goal.id, stage="selected_for_marketing")
+    )
+    influencer = DigitalInfluencer(identity=IdentityProfile(name="Mira"), categories=["affiliate"])
+    brain.influencers.save_influencer(influencer)
+    from atlas.influencer.production import add_template
+    add_template(influencer.id, "hook", "h1", "Nobody tells you this about {product_name}...", brain.influencers)
+    add_template(influencer.id, "cta", "c1", "Try {product_name} today.", brain.influencers)
+
+    brain.tick()
+
+    campaigns = brain.campaigns.campaigns()
+    assert len(campaigns) == 1
+    campaign = campaigns[0]
+    assert campaign.goal_id == goal.id
+    assert campaign.product_offer == "KetoDNA"
+    assert campaign.influencer_ids == [influencer.id]
+    assert campaign.status == "active"
+
+    plans = brain.execution_plans.plans_for_campaign(campaign.id)
+    assert len(plans) == 1
+    review_step = next(s for s in plans[0].steps if s.kind == "request_founder_review")
+    assert review_step.status == "dispatched"  # cascaded automatically through every internal stage, then stopped at the founder-approval boundary
+
+    # The old opportunity-driven content chain must NOT have also picked up
+    # this same real opportunity — that's the whole point of the guard.
+    content_factory_tasks = [t for t in brain.memory.tasks() if t.category == "content_factory"]
+    assert content_factory_tasks == []
+
+
+def test_tick_leaves_the_old_content_factory_chain_untouched_when_no_influencer_is_registered(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    brain = _brain(tmp_path)
+    goal = Goal(description="Pursue affiliate opportunities", engine_id="intelligence_affiliate")
+    brain.memory.save_goal(goal)
+    from atlas.assets.affiliate_department.models import AffiliateOpportunity
+    brain.affiliate_store.save_opportunity(
+        AffiliateOpportunity(product_name="KetoDNA", description="a real product", goal_id=goal.id, stage="selected_for_marketing")
+    )
+    # no influencer registered for "affiliate" — the new bridge must leave this alone
+
+    brain.tick()
+
+    assert brain.campaigns.campaigns() == []
+    # falls through to the old pipeline exactly as it always has
+    content_factory_tasks = [t for t in brain.memory.tasks() if t.category == "content_factory"]
+    assert len(content_factory_tasks) == 1

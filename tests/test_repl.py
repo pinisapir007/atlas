@@ -1,3 +1,4 @@
+from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.decisions import DecisionLog
 from atlas.brain.knowledge import KnowledgeBase
@@ -22,6 +23,7 @@ def _brain(tmp_path):
         campaigns=CampaignRegistry(tmp_path / "campaigns.json"),
         influencers=InfluencerRegistry(tmp_path / "influencers.json"),
         execution_plans=ExecutionPlanRegistry(tmp_path / "execution_plans.json"),
+        affiliate_store=AffiliateStore(tmp_path / ".atlas" / "affiliate_intelligence.json"),
     )
 
 

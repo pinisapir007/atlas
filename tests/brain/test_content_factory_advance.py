@@ -176,3 +176,44 @@ def test_returns_empty_when_report_verb_unsupported(tmp_path):
     memory = _memory_with_goal(tmp_path)
     kpis = KPIRegistry(memory)
     assert advance_content_factory([], registry, memory, kpis) == []
+
+
+def test_campaign_claimed_goal_is_skipped_entirely(tmp_path):
+    # A goal already claimed by the newer Campaign/Execution Orchestrator
+    # pipeline (see campaign_advance.py) must never also get a content_factory
+    # generation task — the two pipelines would otherwise race on the exact
+    # same selected_for_marketing signal and double-generate content.
+    registry = _StubRegistry(report=_report(_opportunity("selected_for_marketing")))
+    memory = _memory_with_goal(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    tasks = advance_content_factory([], registry, memory, kpis, campaign_claimed_goal_ids={"goal-a"})
+
+    assert tasks == []
+
+
+def test_omitting_campaign_claimed_goal_ids_preserves_prior_behavior_exactly(tmp_path):
+    registry = _StubRegistry(report=_report(_opportunity("selected_for_marketing")))
+    memory = _memory_with_goal(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    tasks = advance_content_factory([], registry, memory, kpis)  # no campaign_claimed_goal_ids at all
+
+    assert len(tasks) == 1
+
+
+def test_an_unclaimed_goal_alongside_a_claimed_one_is_unaffected(tmp_path):
+    registry = _StubRegistry(
+        report=_report(
+            _opportunity("selected_for_marketing", goal_id="goal-a", opp_id="opp-1"),
+            _opportunity("selected_for_marketing", goal_id="goal-b", opp_id="opp-2"),
+        )
+    )
+    memory = _memory_with_goal(tmp_path, goal_id="goal-a")
+    memory.save_goal(Goal(description="a different, unclaimed goal", id="goal-b"))
+    kpis = KPIRegistry(memory)
+
+    tasks = advance_content_factory([], registry, memory, kpis, campaign_claimed_goal_ids={"goal-a"})
+
+    assert len(tasks) == 1
+    assert tasks[0].goal_id == "goal-b"

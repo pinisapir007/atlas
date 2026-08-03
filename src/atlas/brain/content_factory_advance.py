@@ -8,7 +8,9 @@ CONTENT_FACTORY_ASSET_ID = "content_factory"
 CONTENT_FACTORY_CATEGORY = "content_factory"
 
 
-def advance_content_factory(tasks: list[Task], registry: Registry, memory: BrainMemory, kpis: KPIRegistry) -> list[Task]:
+def advance_content_factory(
+    tasks: list[Task], registry: Registry, memory: BrainMemory, kpis: KPIRegistry, campaign_claimed_goal_ids: set | None = None
+) -> list[Task]:
     """Content-Factory-specific continuation — the fourth application of the
     same bridge pattern used for Recruitment, the Affiliate Department, and
     Affiliate Intelligence. Three responsibilities:
@@ -20,6 +22,17 @@ def advance_content_factory(tasks: list[Task], registry: Registry, memory: Brain
        Approve/Reject/Request-changes expressed entirely through the
        existing binary approve()/reject() primitive, counted over time —
        not a new multi-choice approval mechanism.
+
+    `campaign_claimed_goal_ids` (2026-08-03): goals already claimed by the
+    newer Campaign/Execution Orchestrator pipeline (see
+    campaign_advance.py) — `selected_for_marketing` is the same real
+    signal both pipelines would otherwise race on, since both exist to
+    turn a founder-chosen product into approved content. Excluding a
+    claimed goal from `_trigger_generation` here is what keeps the two
+    pipelines from double-generating content and double-requesting
+    founder approval for the same opportunity. Optional, defaults to
+    "nothing claimed" — every existing caller/test keeps its exact prior
+    behavior; this only changes anything once a goal is actually claimed.
     """
     try:
         report = registry.dispatch(CONTENT_FACTORY_ASSET_ID, "report")
@@ -32,7 +45,7 @@ def advance_content_factory(tasks: list[Task], registry: Registry, memory: Brain
     if not isinstance(opportunities, list):
         return []
 
-    known_goal_ids = {g.id for g in memory.goals()}
+    known_goal_ids = {g.id for g in memory.goals()} - (campaign_claimed_goal_ids or set())
     new_tasks: list[Task] = []
 
     new_tasks.extend(_trigger_generation(opportunities, tasks, known_goal_ids))
