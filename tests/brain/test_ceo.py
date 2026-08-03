@@ -4,8 +4,13 @@ from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.ledger import Ledger
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Finding, Goal, Task
+from atlas.campaign.registry import CampaignRegistry, create_campaign, set_status
 from atlas.core.registry import Registry
 from atlas.core.store import JSONStore
+from atlas.influencer.models import DigitalInfluencer, IdentityProfile
+from atlas.influencer.registry import InfluencerRegistry
+from atlas.orchestrator.orchestrator import start_execution
+from atlas.orchestrator.registry import ExecutionPlanRegistry
 
 
 def _brain(tmp_path):
@@ -15,6 +20,9 @@ def _brain(tmp_path):
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
         decisions=DecisionLog(tmp_path / "decisions.json"),
         ledger=Ledger(tmp_path / "ledger.json"),
+        campaigns=CampaignRegistry(tmp_path / "campaigns.json"),
+        influencers=InfluencerRegistry(tmp_path / "influencers.json"),
+        execution_plans=ExecutionPlanRegistry(tmp_path / "execution_plans.json"),
     )
 
 
@@ -504,3 +512,27 @@ def test_decision_engine_reopens_only_on_material_evidence_change(tmp_path, monk
     assert ugc_decisions[0].verdict == "insufficient_evidence"
     assert ugc_decisions[1].verdict == "propose_capability"
     assert ugc_decisions[1].superseded_id == ugc_decisions[0].id  # the reopening is itself traceable
+
+
+def test_tick_advances_an_in_progress_campaign_execution_plan(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    brain = _brain(tmp_path)
+    goal = Goal(description="grow affiliate revenue")
+    brain.memory.save_goal(goal)
+    influencer = DigitalInfluencer(identity=IdentityProfile(name="Mira"), categories=["affiliate"])
+    brain.influencers.save_influencer(influencer)
+    campaign = create_campaign(
+        business_objective="launch KetoDNA", category="affiliate", product_offer="KetoDNA",
+        influencer_ids=[influencer.id], influencer_registry=brain.influencers, knowledge=brain.knowledge,
+        memory=brain.memory, kpis=brain.kpis, registry=brain.campaigns, goal_id=goal.id,
+    )
+    set_status(campaign.id, "active", brain.campaigns)
+    plan = start_execution(campaign.id, brain.campaigns, brain.execution_plans)
+    verify_step = plan.steps[0]
+    assert verify_step.status == "pending"
+
+    brain.tick()  # CEOBrain's own loop, not a direct orchestrator call — proves the wiring, not just the mechanism
+
+    advanced = brain.execution_plans.get_plan(plan.id)
+    verify_step = next(s for s in advanced.steps if s.kind == "verify_readiness")
+    assert verify_step.status == "done"

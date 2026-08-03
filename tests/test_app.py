@@ -5,8 +5,11 @@ from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.ledger import Ledger
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Task
+from atlas.campaign.registry import CampaignRegistry
 from atlas.core.registry import Registry
 from atlas.core.store import JSONStore
+from atlas.influencer.registry import InfluencerRegistry
+from atlas.orchestrator.registry import ExecutionPlanRegistry
 
 
 def _brain(tmp_path):
@@ -16,6 +19,9 @@ def _brain(tmp_path):
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
         decisions=DecisionLog(tmp_path / "decisions.json"),
         ledger=Ledger(tmp_path / "ledger.json"),
+        campaigns=CampaignRegistry(tmp_path / "campaigns.json"),
+        influencers=InfluencerRegistry(tmp_path / "influencers.json"),
+        execution_plans=ExecutionPlanRegistry(tmp_path / "execution_plans.json"),
     )
 
 

@@ -645,3 +645,71 @@ def test_campaign_list_shows_every_campaign(tmp_path, monkeypatch, capsys):
 
     assert "KetoDNA" in out
     assert "OtherOffer" in out
+
+
+def test_campaign_execution_full_lifecycle_via_cli(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["brain", "goal", "add", "grow affiliate revenue"])
+    goal_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(["influencer", "template", "add", influencer_id, "--kind", "hook", "--name", "h1", "--content", "Nobody tells you this about {product_name}..."])
+    capsys.readouterr()
+    main(["influencer", "template", "add", influencer_id, "--kind", "cta", "--name", "c1", "--content", "Try {product_name} today."])
+    capsys.readouterr()
+    main(
+        ["campaign", "create", "--objective", "grow affiliate revenue", "--category", "affiliate", "--product", "KetoDNA",
+         "--influencer", influencer_id, "--goal-id", goal_id]
+    )
+    campaign_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    exit_code = main(["campaign", "activate", campaign_id])
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "active" in out
+
+    exit_code = main(["campaign", "execution", "start", campaign_id])
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    plan_id = out.strip().split("\t")[0]
+    assert "in_progress" in out
+
+    exit_code = main(["campaign", "execution", "advance", plan_id])
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "verify_readiness" in out
+    assert "done" in out
+    assert "request_founder_review" in out
+    assert "dispatched" in out
+
+    main(["campaign", "execution", "show", plan_id])
+    show_out = capsys.readouterr().out
+    assert "produce_content" in show_out
+    assert "check_measurement" in show_out
+
+
+def test_campaign_execution_start_rejects_a_non_active_campaign(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(["campaign", "create", "--objective", "a", "--category", "affiliate", "--product", "KetoDNA", "--influencer", influencer_id])
+    campaign_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    exit_code = main(["campaign", "execution", "start", campaign_id])
+
+    assert exit_code == 1
+    assert "not active" in capsys.readouterr().err
+
+
+def test_campaign_link_goal(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(["campaign", "create", "--objective", "a", "--category", "affiliate", "--product", "KetoDNA", "--influencer", influencer_id])
+    campaign_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    exit_code = main(["campaign", "link-goal", campaign_id, "goal-a"])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "goal-a" in out

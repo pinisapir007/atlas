@@ -127,3 +127,34 @@ def refresh_confidence(campaign_id: str, knowledge: KnowledgeBase, memory: Brain
     )
     registry.save_campaign(campaign)
     return campaign
+
+
+CAMPAIGN_STATUSES = {"proposed", "active", "paused", "completed", "cancelled"}
+
+
+def link_goal(campaign_id: str, goal_id: str, registry: CampaignRegistry) -> Campaign:
+    """Attaches a real Goal to a campaign created without one — the
+    Execution Orchestrator's verify_readiness step requires a linked Goal
+    (it's what real Task/KPI/Ledger attribution needs) before it will
+    dispatch anything, and create_campaign() only accepts goal_id at
+    creation time, so this is the real, explicit way to add one
+    afterward rather than forcing every campaign to name a Goal upfront."""
+    campaign = registry.get_campaign(campaign_id)
+    campaign.goal_id = goal_id
+    registry.save_campaign(campaign)
+    return campaign
+
+
+def set_status(campaign_id: str, status: str, registry: CampaignRegistry) -> Campaign:
+    """Direct, founder-explicit status transition — e.g. moving a campaign
+    to "active" is the real approval gate the Execution Orchestrator
+    requires before it will build an execution plan (see
+    orchestrator.start_execution()). Fail-closed on an unrecognized
+    status, the same discipline get_provider()/add_template() already
+    apply to their own open-but-bounded sets."""
+    if status not in CAMPAIGN_STATUSES:
+        raise ValueError(f"unknown campaign status: {status!r} (must be one of {sorted(CAMPAIGN_STATUSES)})")
+    campaign = registry.get_campaign(campaign_id)
+    campaign.status = status
+    registry.save_campaign(campaign)
+    return campaign

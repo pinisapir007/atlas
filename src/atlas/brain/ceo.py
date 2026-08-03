@@ -23,7 +23,11 @@ from atlas.brain.prioritizer import Prioritizer, SimplePrioritizer
 from atlas.brain.reporter import Reporter
 from atlas.brain.risk import RiskPolicy
 from atlas.brain.strategist import SimpleStrategist, Strategist
+from atlas.campaign.registry import CampaignRegistry
 from atlas.core.registry import Registry
+from atlas.influencer.registry import InfluencerRegistry
+from atlas.orchestrator.orchestrator import advance_all_campaign_executions
+from atlas.orchestrator.registry import ExecutionPlanRegistry
 
 OPEN_FOR_PRIORITIZATION = {"proposed", "prioritized"}
 
@@ -50,6 +54,9 @@ class CEOBrain:
         knowledge: KnowledgeBase | None = None,
         decisions: DecisionLog | None = None,
         ledger: Ledger | None = None,
+        campaigns: CampaignRegistry | None = None,
+        influencers: InfluencerRegistry | None = None,
+        execution_plans: ExecutionPlanRegistry | None = None,
     ):
         self.memory = memory if memory is not None else BrainMemory()
         self.registry = registry if registry is not None else Registry()
@@ -61,6 +68,9 @@ class CEOBrain:
         self.knowledge = knowledge if knowledge is not None else KnowledgeBase()
         self.decisions = decisions if decisions is not None else DecisionLog()
         self.ledger = ledger if ledger is not None else Ledger()
+        self.campaigns = campaigns if campaigns is not None else CampaignRegistry()
+        self.influencers = influencers if influencers is not None else InfluencerRegistry()
+        self.execution_plans = execution_plans if execution_plans is not None else ExecutionPlanRegistry()
         self.kpis = KPIRegistry(self.memory)
         self.delegator = Delegator(self.memory)
         self.monitor = Monitor()
@@ -126,6 +136,8 @@ class CEOBrain:
 
         for publishing_task in advance_publishing_gateway(self.memory.tasks(), self.registry, self.memory, self.kpis):
             self.memory.save_task(publishing_task)
+
+        advance_all_campaign_executions(self.execution_plans, self.campaigns, self.influencers, self.memory, self.kpis, self.knowledge)
 
         return self.memory.tasks()
 

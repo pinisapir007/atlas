@@ -14,12 +14,13 @@ from atlas.brain.kpi_intake import record_manual_cost, record_manual_refund, rec
 from atlas.brain.models import Finding, Task
 from atlas.core.registry import Registry, UnsupportedVerb, VERBS
 from atlas.app import run_app
-from atlas.campaign.registry import CampaignRegistry, create_campaign, refresh_confidence
+from atlas.campaign.registry import CampaignRegistry, create_campaign, link_goal, refresh_confidence, set_status
 from atlas.influencer.models import TEMPLATE_KINDS, DigitalInfluencer, IdentityProfile
 from atlas.influencer.performance import record_metric
 from atlas.influencer.production import add_template, generate_campaign_content, templates_of_kind
 from atlas.influencer.ranking import rank_influencers
 from atlas.influencer.registry import InfluencerRegistry, add_platform_target, attach_asset
+from atlas.orchestrator.orchestrator import advance_execution, start_execution
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -340,6 +341,25 @@ def build_parser() -> argparse.ArgumentParser:
         "produce", help="generate one content package per assigned influencer from the campaign's own template libraries (no real generation — deterministic assembly only)"
     )
     campaign_produce.add_argument("campaign_id")
+
+    campaign_activate = campaign_sub.add_parser("activate", help="approve a campaign for execution — the required gate before the Execution Orchestrator will start a plan")
+    campaign_activate.add_argument("campaign_id")
+
+    campaign_link_goal = campaign_sub.add_parser("link-goal", help="attach a real Goal to a campaign created without one")
+    campaign_link_goal.add_argument("campaign_id")
+    campaign_link_goal.add_argument("goal_id")
+
+    execution_parser = campaign_sub.add_parser("execution", help="Execution Orchestrator: coordinate a campaign's real business execution")
+    execution_sub = execution_parser.add_subparsers(dest="execution_command", required=True)
+
+    execution_start = execution_sub.add_parser("start", help="build an execution plan for an active campaign (idempotent — returns the existing plan if one is already in progress)")
+    execution_start.add_argument("campaign_id")
+
+    execution_advance = execution_sub.add_parser("advance", help="advance one execution plan by id — normally automatic every CEOBrain.tick(), this forces an immediate re-evaluation")
+    execution_advance.add_argument("plan_id")
+
+    execution_show = execution_sub.add_parser("show", help="show one execution plan's full step-by-step state")
+    execution_show.add_argument("plan_id")
 
     return parser
 
@@ -898,6 +918,40 @@ def _cmd_campaign(args: argparse.Namespace) -> None:
             print(f"captions: {package.captions}")
             print(f"landing_page_messages: {package.landing_page_messages}")
             print(f"missing_kinds: {package.missing_kinds}")
+
+    elif cmd == "activate":
+        campaign = set_status(args.campaign_id, "active", registry)
+        print(f"{campaign.id}\t{campaign.status}")
+
+    elif cmd == "link-goal":
+        campaign = link_goal(args.campaign_id, args.goal_id, registry)
+        print(f"{campaign.id}\tgoal={campaign.goal_id}")
+
+    elif cmd == "execution":
+        _cmd_campaign_execution(args, registry, brain)
+
+
+def _cmd_campaign_execution(args: argparse.Namespace, campaign_registry: CampaignRegistry, brain: CEOBrain) -> None:
+    cmd = args.execution_command
+
+    if cmd == "start":
+        plan = start_execution(args.campaign_id, campaign_registry, brain.execution_plans)
+        print(f"{plan.id}\t{plan.status}\t{len(plan.steps)} step(s)")
+
+    elif cmd == "advance":
+        plan = advance_execution(args.plan_id, brain.execution_plans, campaign_registry, brain.influencers, brain.memory, brain.kpis, brain.knowledge)
+        print(f"{plan.id}\t{plan.status}")
+        for step in plan.steps:
+            print(f"  {step.kind}\t{step.status}\t{step.result}")
+
+    elif cmd == "show":
+        plan = brain.execution_plans.get_plan(args.plan_id)
+        print(f"{plan.id}\tcampaign={plan.campaign_id}\t{plan.status}")
+        for step in plan.steps:
+            print(f"  Step: {step.kind}\t{step.status}\tdepends_on={step.depends_on}\ttask_id={step.task_id}")
+            print(f"    result: {step.result}")
+        for entry in plan.event_log:
+            print(f"  Event: {entry}")
 
 
 if __name__ == "__main__":
