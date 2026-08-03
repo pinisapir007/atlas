@@ -14,8 +14,9 @@ from atlas.brain.kpi_intake import record_manual_cost, record_manual_refund, rec
 from atlas.brain.models import Finding, Task
 from atlas.core.registry import Registry, UnsupportedVerb, VERBS
 from atlas.app import run_app
-from atlas.influencer.models import DigitalInfluencer, IdentityProfile
+from atlas.influencer.models import TEMPLATE_KINDS, DigitalInfluencer, IdentityProfile
 from atlas.influencer.performance import record_metric
+from atlas.influencer.production import add_template, assign_product, generate_content_package, templates_of_kind
 from atlas.influencer.ranking import rank_influencers
 from atlas.influencer.registry import InfluencerRegistry, add_platform_target, attach_asset
 
@@ -293,6 +294,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     influencer_rank = influencer_sub.add_parser("rank", help="rank influencers eligible for a business category by real performance evidence")
     influencer_rank.add_argument("category")
+
+    influencer_template_parser = influencer_sub.add_parser("template", help="manage an influencer's reusable content template libraries")
+    influencer_template_sub = influencer_template_parser.add_subparsers(dest="influencer_template_command", required=True)
+    influencer_template_add = influencer_template_sub.add_parser("add", help="add a reusable, founder-authored content template to an influencer's library")
+    influencer_template_add.add_argument("influencer_id")
+    influencer_template_add.add_argument("--kind", required=True, choices=sorted(TEMPLATE_KINDS))
+    influencer_template_add.add_argument("--name", required=True)
+    influencer_template_add.add_argument("--content", required=True, help="the template text/prompt; use {product_name} where it should be substituted")
+    influencer_template_add.add_argument("--tag", action="append", default=[], dest="tags", help="a matching tag (repeatable)")
+    influencer_template_list = influencer_template_sub.add_parser("list", help="list an influencer's templates, optionally filtered by kind")
+    influencer_template_list.add_argument("influencer_id")
+    influencer_template_list.add_argument("--kind", default=None, choices=sorted(TEMPLATE_KINDS))
+
+    influencer_product_parser = influencer_sub.add_parser("product", help="manage an influencer's product assignments")
+    influencer_product_sub = influencer_product_parser.add_subparsers(dest="influencer_product_command", required=True)
+    influencer_product_assign = influencer_product_sub.add_parser("assign", help="assign a real product/opportunity to an influencer for content production")
+    influencer_product_assign.add_argument("influencer_id")
+    influencer_product_assign.add_argument("--product", required=True, dest="product_name")
+    influencer_product_assign.add_argument("--goal-id", default=None, dest="goal_id")
+    influencer_product_assign.add_argument("--opportunity-id", default=None, dest="opportunity_id")
+
+    influencer_produce = influencer_sub.add_parser(
+        "produce", help="assemble a content package for an influencer's product assignment from its own template library (no real generation — deterministic assembly only)"
+    )
+    influencer_produce.add_argument("influencer_id")
+    influencer_produce.add_argument("product_assignment_id")
 
     return parser
 
@@ -756,6 +783,10 @@ def _cmd_influencer(args: argparse.Namespace) -> None:
             print(f"  Platform: {target.platform}\t{target.handle or '(no handle)'}\t{target.status}")
         for asset in influencer.asset_library:
             print(f"  Asset: {asset.asset_type}\t{asset.reference}")
+        for template in influencer.templates:
+            print(f"  Template: {template.kind}\t{template.name}\t{template.id}")
+        for assignment in influencer.product_assignments:
+            print(f"  Product assignment: {assignment.product_name}\t{assignment.status}\t{assignment.id}")
 
     elif cmd == "asset":
         if args.influencer_asset_command == "attach":
@@ -778,6 +809,33 @@ def _cmd_influencer(args: argparse.Namespace) -> None:
             print(f"no influencer tagged for category '{args.category}'")
         for entry in ranked:
             print(f"{entry['influencer_id']}\t{entry['factors_available']}/{entry['factors_total']} evidence factors\t{entry['metrics']}")
+
+    elif cmd == "template":
+        if args.influencer_template_command == "add":
+            influencer = add_template(args.influencer_id, args.kind, args.name, args.content, registry, tags=args.tags)
+            print(f"{influencer.id}\t{args.kind}\t{args.name}\t{len(templates_of_kind(influencer, args.kind))} template(s) of this kind")
+        elif args.influencer_template_command == "list":
+            influencer = registry.get_influencer(args.influencer_id)
+            templates = templates_of_kind(influencer, args.kind) if args.kind else influencer.templates
+            for template in templates:
+                print(f"{template.id}\t{template.kind}\t{template.name}\t{template.content}")
+
+    elif cmd == "product":
+        if args.influencer_product_command == "assign":
+            influencer = assign_product(args.influencer_id, args.product_name, registry, goal_id=args.goal_id, opportunity_id=args.opportunity_id)
+            print(f"{influencer.product_assignments[-1].id}\t{args.product_name}\tassigned")
+
+    elif cmd == "produce":
+        package = generate_content_package(args.influencer_id, args.product_assignment_id, registry)
+        print(f"scripts: {package.scripts}")
+        print(f"hooks: {package.hooks}")
+        print(f"ctas: {package.ctas}")
+        print(f"image_prompts: {package.image_prompts}")
+        print(f"video_prompts: {package.video_prompts}")
+        print(f"voice_prompts: {package.voice_prompts}")
+        print(f"captions: {package.captions}")
+        print(f"landing_page_messages: {package.landing_page_messages}")
+        print(f"missing_kinds: {package.missing_kinds}")
 
 
 if __name__ == "__main__":

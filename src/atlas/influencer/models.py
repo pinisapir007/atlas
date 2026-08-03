@@ -94,6 +94,101 @@ class AssetLibraryEntry:
     created_at: str = field(default_factory=now)
 
 
+# The Content Production Layer's library kinds (2026-08-03) — an explicit,
+# documented, open-but-bounded set, the same discipline
+# confidence.CATEGORY_TASK_CATEGORIES already uses, rather than eight
+# near-identical dataclasses (ScriptTemplate, Hook, CTA, ...) that would all
+# share this exact shape: a name, real founder-authored content, and
+# optional matching tags. One kind, one list, one set of functions — a new
+# library type is a new string in this set, never a new field/dataclass/
+# CLI command.
+TEMPLATE_KINDS = {
+    "script_template",
+    "hook",
+    "cta",
+    "image_prompt",
+    "video_prompt",
+    "voice_prompt",
+    "caption_template",
+    "landing_page_message",
+}
+
+
+@dataclass
+class ContentTemplate:
+    """One reusable content building block owned by an influencer — a
+    script template, hook, CTA, image/video/voice prompt, caption
+    template, or landing-page message (`kind`, one of TEMPLATE_KINDS).
+    `content` is founder-authored text or a structured prompt string —
+    never generated here (no LLM/image/video/voice generation integration
+    exists), the same "no real generation, only real founder-authored
+    input" boundary content_factory/generator.py and CreativeAgent already
+    draw. `tags` are free-form matching hints (e.g. niche or product
+    type), founder-set, never inferred."""
+
+    kind: str
+    name: str
+    content: str
+    tags: list[str] = field(default_factory=list)
+    id: str = field(default_factory=lambda: new_id("template"))
+    created_at: str = field(default_factory=now)
+
+
+@dataclass
+class ProductAssignment:
+    """A real product/opportunity this influencer has been assigned to
+    produce content for — the "Product assignment" library. `goal_id`/
+    `opportunity_id` link back to the real business record driving this
+    when one exists, never fabricated. Assignment is deliberately a
+    direct, explicit action today (see atlas.influencer.production) —
+    wiring the Decision Engine to assign automatically is a separate,
+    later increment (see atlas.influencer package docs: it touches
+    Decision/Goal, both locked, and has no real performance history to
+    base an automatic choice on yet)."""
+
+    product_name: str
+    goal_id: str | None = None
+    opportunity_id: str | None = None
+    status: str = "assigned"  # assigned | in_production | delivered | cancelled
+    id: str = field(default_factory=lambda: new_id("assignment"))
+    created_at: str = field(default_factory=now)
+
+
+@dataclass
+class ContentPackage:
+    """One assembled set of production-ready assets for a specific
+    influencer and a specific product assignment — the Content Production
+    Layer's output. Deterministic, template-based assembly from the
+    influencer's own stored ContentTemplate library (same "no LLM, no
+    external API" boundary content_factory/generator.py already
+    established) — never real AI generation, since no such integration
+    exists yet. Purely computed on demand (see
+    production.generate_content_package()), never persisted — the same
+    read-only-view shape explain_opportunity() already has, since a
+    stored package would silently go stale the moment the influencer's
+    underlying templates change.
+
+    Each field is a list because an influencer may own several templates
+    of the same kind; `missing_kinds` names every TEMPLATE_KINDS entry
+    this influencer currently has none of — an honest gap surfaced to the
+    founder, never silently omitted or filled with a placeholder.
+    """
+
+    influencer_id: str
+    product_assignment_id: str
+    scripts: list[str] = field(default_factory=list)
+    hooks: list[str] = field(default_factory=list)
+    ctas: list[str] = field(default_factory=list)
+    image_prompts: list[str] = field(default_factory=list)
+    video_prompts: list[str] = field(default_factory=list)
+    voice_prompts: list[str] = field(default_factory=list)
+    captions: list[str] = field(default_factory=list)
+    landing_page_messages: list[str] = field(default_factory=list)
+    missing_kinds: list[str] = field(default_factory=list)
+    id: str = field(default_factory=lambda: new_id("content-package"))
+    created_at: str = field(default_factory=now)
+
+
 @dataclass
 class DigitalInfluencer:
     """A reusable digital persona ATLAS can assign to opportunities — the
@@ -121,6 +216,16 @@ class DigitalInfluencer:
     measured revenue/cost. An entity's identity and its measured history
     are different concerns with different mutation patterns (rare
     founder edits vs. frequent real-data updates).
+
+    `templates` and `product_assignments` are the Content Production
+    Layer's ownership (2026-08-03, architecture locked): every reusable
+    production library (script templates, hooks, CTAs, image/video/voice
+    prompts, caption templates, landing-page messaging) an influencer owns
+    lives in `templates` (see TEMPLATE_KINDS), and every real product this
+    influencer has been assigned to produce content for lives in
+    `product_assignments` — both embedded for the same reason
+    platform_targets/asset_library are: no independent lifecycle apart
+    from the influencer they belong to.
     """
 
     identity: IdentityProfile
@@ -130,6 +235,8 @@ class DigitalInfluencer:
     audience: AudienceProfile = field(default_factory=AudienceProfile)
     platform_targets: list[PlatformTarget] = field(default_factory=list)
     asset_library: list[AssetLibraryEntry] = field(default_factory=list)
+    templates: list[ContentTemplate] = field(default_factory=list)
+    product_assignments: list[ProductAssignment] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
     status: str = "active"  # active | retired
     id: str = field(default_factory=lambda: new_id("influencer"))
@@ -155,4 +262,6 @@ class DigitalInfluencer:
         data["audience"] = AudienceProfile(**data["audience"])
         data["platform_targets"] = [PlatformTarget(**p) for p in data["platform_targets"]]
         data["asset_library"] = [AssetLibraryEntry(**a) for a in data["asset_library"]]
+        data["templates"] = [ContentTemplate(**t) for t in data.get("templates", [])]
+        data["product_assignments"] = [ProductAssignment(**p) for p in data.get("product_assignments", [])]
         return DigitalInfluencer(**data)

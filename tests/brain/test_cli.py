@@ -1,3 +1,5 @@
+import pytest
+
 from atlas.assets.publishing_gateway.models import PublishPackage
 from atlas.assets.publishing_gateway.store import PublishingQueueStore
 from atlas.brain.ledger import Ledger
@@ -538,3 +540,50 @@ def test_influencer_rank_reports_no_match_for_an_untagged_category(tmp_path, mon
     out = capsys.readouterr().out
 
     assert "no influencer tagged" in out
+
+
+def test_influencer_template_add_rejects_an_unknown_kind(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Mira"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    with pytest.raises(SystemExit):
+        main(["influencer", "template", "add", influencer_id, "--kind", "meme", "--name", "n", "--content", "c"])
+
+
+def test_influencer_template_add_and_list(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Mira"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    main(["influencer", "template", "add", influencer_id, "--kind", "hook", "--name", "curiosity", "--content", "Nobody tells you this about {product_name}...", "--tag", "fitness"])
+    capsys.readouterr()
+
+    main(["influencer", "template", "list", influencer_id, "--kind", "hook"])
+    out = capsys.readouterr().out
+
+    assert "curiosity" in out
+    assert "{product_name}" in out
+
+
+def test_influencer_product_assign_and_produce_end_to_end(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    main(["influencer", "template", "add", influencer_id, "--kind", "hook", "--name", "h1", "--content", "Nobody tells you this about {product_name}..."])
+    capsys.readouterr()
+    main(["influencer", "template", "add", influencer_id, "--kind", "cta", "--name", "c1", "--content", "Try {product_name} today."])
+    capsys.readouterr()
+
+    main(["influencer", "product", "assign", influencer_id, "--product", "KetoDNA", "--goal-id", "goal-a"])
+    assignment_out = capsys.readouterr().out
+    assignment_id = assignment_out.strip().split("\t")[0]
+
+    exit_code = main(["influencer", "produce", influencer_id, assignment_id])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Nobody tells you this about KetoDNA" in out
+    assert "Try KetoDNA today" in out
+    assert "'script_template'" in out  # a real, honest gap surfaced in missing_kinds
