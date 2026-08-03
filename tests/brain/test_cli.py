@@ -713,3 +713,104 @@ def test_campaign_link_goal(tmp_path, monkeypatch, capsys):
 
     assert exit_code == 0
     assert "goal-a" in out
+
+
+def _campaign_with_goal(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["brain", "goal", "add", "grow affiliate revenue"])
+    goal_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(
+        ["campaign", "create", "--objective", "a", "--category", "affiliate", "--product", "KetoDNA",
+         "--influencer", influencer_id, "--goal-id", goal_id]
+    )
+    campaign_id = capsys.readouterr().out.strip().split("\t")[0]
+    return campaign_id, goal_id
+
+
+def test_campaign_revenue_record_accumulates_against_the_linked_goal(tmp_path, monkeypatch, capsys):
+    campaign_id, goal_id = _campaign_with_goal(monkeypatch, tmp_path, capsys)
+
+    main(["campaign", "revenue", "record", campaign_id, "150", "--cost", "40", "--provider", "digistore24"])
+    capsys.readouterr()
+    main(["campaign", "revenue", "record", campaign_id, "50"])
+    capsys.readouterr()
+
+    main(["brain", "kpi", "list"])
+    out = capsys.readouterr().out
+    assert f"revenue_{goal_id}\t200.0" in out
+    assert f"cost_{goal_id}\t40.0" in out
+
+    entries = Ledger().entries_for_goal(goal_id)
+    assert any(e.kind == "revenue_claimed" and e.provider == "digistore24" for e in entries)
+
+
+def test_campaign_cost_fee_settlement_refund_record_all_target_the_linked_goal(tmp_path, monkeypatch, capsys):
+    campaign_id, goal_id = _campaign_with_goal(monkeypatch, tmp_path, capsys)
+
+    main(["campaign", "revenue", "record", campaign_id, "150"])
+    capsys.readouterr()
+    main(["campaign", "cost", "record", campaign_id, "10", "--category", "ad_spend"])
+    capsys.readouterr()
+    main(["campaign", "fee", "record", campaign_id, "5", "--category", "platform_fee"])
+    capsys.readouterr()
+    main(["campaign", "settlement", "record", campaign_id, "130"])
+    capsys.readouterr()
+    main(["campaign", "refund", "record", campaign_id, "20"])
+    capsys.readouterr()
+
+    main(["brain", "kpi", "list"])
+    out = capsys.readouterr().out
+    assert f"cost_{goal_id}\t15.0" in out  # 10 ad_spend + 5 fee
+    assert f"revenue_{goal_id}\t130.0" in out  # 150 - 20 refund
+    assert f"settled_{goal_id}\t130.0" in out
+
+    kinds = {e.kind for e in Ledger().entries_for_goal(goal_id)}
+    assert kinds == {"revenue_claimed", "cost", "fee", "cash_settled", "refund"}
+
+
+def test_campaign_revenue_record_rejects_a_campaign_with_no_linked_goal(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(["campaign", "create", "--objective", "a", "--category", "affiliate", "--product", "KetoDNA", "--influencer", influencer_id])
+    campaign_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    exit_code = main(["campaign", "revenue", "record", campaign_id, "150"])
+
+    assert exit_code == 1
+    assert "no goal_id" in capsys.readouterr().err
+
+
+def test_campaign_revenue_record_unblocks_check_measurement_end_to_end(tmp_path, monkeypatch, capsys):
+    campaign_id, goal_id = _campaign_with_goal(monkeypatch, tmp_path, capsys)
+    main(["influencer", "list"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(["influencer", "template", "add", influencer_id, "--kind", "hook", "--name", "h1", "--content", "Nobody tells you this about {product_name}..."])
+    capsys.readouterr()
+    main(["influencer", "template", "add", influencer_id, "--kind", "cta", "--name", "c1", "--content", "Try {product_name} today."])
+    capsys.readouterr()
+    main(["campaign", "activate", campaign_id])
+    capsys.readouterr()
+    main(["campaign", "execution", "start", campaign_id])
+    plan_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(["campaign", "execution", "advance", plan_id])  # cascades to request_founder_review, dispatched
+    capsys.readouterr()
+
+    main(["campaign", "execution", "show", plan_id])
+    task_line = [line for line in capsys.readouterr().out.splitlines() if "request_founder_review" in line][0]
+    task_id = task_line.split("task_id=")[1]
+
+    main(["brain", "approve", task_id])
+    capsys.readouterr()
+    main(["brain", "tick"])  # Monitor.sync() is what actually flips a delegated Task to "done" — advance alone never mutates Task state
+    capsys.readouterr()
+    main(["campaign", "revenue", "record", campaign_id, "200", "--cost", "100"])
+    capsys.readouterr()
+
+    main(["campaign", "execution", "advance", plan_id])
+    out = capsys.readouterr().out
+
+    assert "check_measurement\tdone" in out
+    assert "'profit': 100.0" in out

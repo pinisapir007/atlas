@@ -349,6 +349,63 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_link_goal.add_argument("campaign_id")
     campaign_link_goal.add_argument("goal_id")
 
+    # Campaign-scoped Measurement/Finance entry points (2026-08-03): the
+    # `atlas affiliate revenue/cost/fee/settlement/refund record` commands
+    # above all resolve a package_id -> goal_id via PublishingQueueStore —
+    # the old affiliate_department/publishing_gateway chain, which Campaigns
+    # never touch. Without these, there was no real way to record real
+    # money against a Campaign's goal_id at all; the underlying
+    # record_manual_*() functions already take goal_id directly (package_id
+    # resolution was always just a CLI convenience for the old flow), so
+    # this is the same functions, a second real entry point.
+    campaign_revenue_parser = campaign_sub.add_parser("revenue", help="record real revenue against a campaign's linked goal")
+    campaign_revenue_sub = campaign_revenue_parser.add_subparsers(dest="campaign_revenue_command", required=True)
+    campaign_revenue_record = campaign_revenue_sub.add_parser("record", help="record a real conversion amount for this campaign")
+    campaign_revenue_record.add_argument("campaign_id")
+    campaign_revenue_record.add_argument("amount", type=float)
+    campaign_revenue_record.add_argument("--cost", type=float, default=None)
+    campaign_revenue_record.add_argument("--provider", default="")
+    campaign_revenue_record.add_argument("--evidence", default="")
+    campaign_revenue_record.add_argument("--document", default="", dest="document_ref")
+
+    campaign_cost_parser = campaign_sub.add_parser("cost", help="record real spend against a campaign's linked goal")
+    campaign_cost_sub = campaign_cost_parser.add_subparsers(dest="campaign_cost_command", required=True)
+    campaign_cost_record = campaign_cost_sub.add_parser("record", help="record a real, incurred cost not tied to a single conversion for this campaign")
+    campaign_cost_record.add_argument("campaign_id")
+    campaign_cost_record.add_argument("amount", type=float)
+    campaign_cost_record.add_argument("--category", default="")
+    campaign_cost_record.add_argument("--provider", default="")
+    campaign_cost_record.add_argument("--evidence", default="")
+    campaign_cost_record.add_argument("--document", default="", dest="document_ref")
+
+    campaign_fee_parser = campaign_sub.add_parser("fee", help="record a real platform/processor fee against a campaign's linked goal")
+    campaign_fee_sub = campaign_fee_parser.add_subparsers(dest="campaign_fee_command", required=True)
+    campaign_fee_record = campaign_fee_sub.add_parser("record", help="record a real fee deducted by a platform or payment processor for this campaign")
+    campaign_fee_record.add_argument("campaign_id")
+    campaign_fee_record.add_argument("amount", type=float)
+    campaign_fee_record.add_argument("--category", default="")
+    campaign_fee_record.add_argument("--provider", default="")
+    campaign_fee_record.add_argument("--evidence", default="")
+    campaign_fee_record.add_argument("--document", default="", dest="document_ref")
+
+    campaign_settlement_parser = campaign_sub.add_parser("settlement", help="record real cash verified received against a campaign's linked goal")
+    campaign_settlement_sub = campaign_settlement_parser.add_subparsers(dest="campaign_settlement_command", required=True)
+    campaign_settlement_record = campaign_settlement_sub.add_parser("record", help="record a real, verified payout received for this campaign")
+    campaign_settlement_record.add_argument("campaign_id")
+    campaign_settlement_record.add_argument("amount", type=float)
+    campaign_settlement_record.add_argument("--provider", default="")
+    campaign_settlement_record.add_argument("--evidence", default="")
+    campaign_settlement_record.add_argument("--document", default="", dest="document_ref")
+
+    campaign_refund_parser = campaign_sub.add_parser("refund", help="record a real reversal of previously claimed revenue against a campaign's linked goal")
+    campaign_refund_sub = campaign_refund_parser.add_subparsers(dest="campaign_refund_command", required=True)
+    campaign_refund_record = campaign_refund_sub.add_parser("record", help="record a real refund or chargeback that reverses previously claimed revenue for this campaign")
+    campaign_refund_record.add_argument("campaign_id")
+    campaign_refund_record.add_argument("amount", type=float)
+    campaign_refund_record.add_argument("--provider", default="")
+    campaign_refund_record.add_argument("--evidence", default="")
+    campaign_refund_record.add_argument("--document", default="", dest="document_ref")
+
     execution_parser = campaign_sub.add_parser("execution", help="Execution Orchestrator: coordinate a campaign's real business execution")
     execution_sub = execution_parser.add_subparsers(dest="execution_command", required=True)
 
@@ -785,6 +842,13 @@ def _resolve_package_goal_id(package_id: str, purpose: str) -> str:
     return package.goal_id
 
 
+def _resolve_campaign_goal_id(campaign_id: str, campaign_registry: CampaignRegistry, purpose: str) -> str:
+    campaign = campaign_registry.get_campaign(campaign_id)
+    if not campaign.goal_id:
+        raise ValueError(f"campaign {campaign_id} has no goal_id — cannot attribute {purpose} (use 'atlas campaign link-goal' first)")
+    return campaign.goal_id
+
+
 def _cmd_creative(args: argparse.Namespace) -> None:
     cmd = args.creative_command
 
@@ -926,6 +990,52 @@ def _cmd_campaign(args: argparse.Namespace) -> None:
     elif cmd == "link-goal":
         campaign = link_goal(args.campaign_id, args.goal_id, registry)
         print(f"{campaign.id}\tgoal={campaign.goal_id}")
+
+    elif cmd == "revenue":
+        if args.campaign_revenue_command == "record":
+            goal_id = _resolve_campaign_goal_id(args.campaign_id, registry, "revenue")
+            record_manual_revenue(
+                goal_id, args.amount, args.cost, brain.kpis, brain.ledger,
+                provider=args.provider, evidence=args.evidence, document_ref=args.document_ref,
+            )
+            print(f"recorded revenue_{goal_id} += {args.amount}", end="")
+            print(f", cost_{goal_id} += {args.cost}" if args.cost is not None else "")
+
+    elif cmd == "cost":
+        if args.campaign_cost_command == "record":
+            goal_id = _resolve_campaign_goal_id(args.campaign_id, registry, "cost")
+            record_manual_cost(
+                goal_id, args.amount, brain.kpis, brain.ledger,
+                category=args.category, provider=args.provider, evidence=args.evidence, document_ref=args.document_ref,
+            )
+            print(f"recorded cost_{goal_id} += {args.amount}")
+
+    elif cmd == "fee":
+        if args.campaign_fee_command == "record":
+            goal_id = _resolve_campaign_goal_id(args.campaign_id, registry, "fee")
+            record_manual_cost(
+                goal_id, args.amount, brain.kpis, brain.ledger, kind="fee",
+                category=args.category, provider=args.provider, evidence=args.evidence, document_ref=args.document_ref,
+            )
+            print(f"recorded cost_{goal_id} += {args.amount} (fee)")
+
+    elif cmd == "settlement":
+        if args.campaign_settlement_command == "record":
+            goal_id = _resolve_campaign_goal_id(args.campaign_id, registry, "settlement")
+            record_manual_settlement(
+                goal_id, args.amount, brain.kpis, brain.ledger,
+                provider=args.provider, evidence=args.evidence, document_ref=args.document_ref,
+            )
+            print(f"recorded settled_{goal_id} += {args.amount}")
+
+    elif cmd == "refund":
+        if args.campaign_refund_command == "record":
+            goal_id = _resolve_campaign_goal_id(args.campaign_id, registry, "refund")
+            record_manual_refund(
+                goal_id, args.amount, brain.kpis, brain.ledger,
+                provider=args.provider, evidence=args.evidence, document_ref=args.document_ref,
+            )
+            print(f"recorded revenue_{goal_id} -= {args.amount} (refund)")
 
     elif cmd == "execution":
         _cmd_campaign_execution(args, registry, brain)
