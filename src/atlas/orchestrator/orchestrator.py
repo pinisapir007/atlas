@@ -9,13 +9,24 @@ from atlas.influencer.registry import InfluencerRegistry
 from atlas.orchestrator.models import ExecutionPlan, ExecutionStep
 from atlas.orchestrator.registry import ExecutionPlanRegistry
 
-# Templates a produce_content step cannot proceed without — a campaign
-# with no hook or no CTA at all has nothing real to review or publish.
-# Every other TEMPLATE_KINDS entry being missing is recorded honestly in
-# the step's result but doesn't block it, the same "missing_kinds is an
-# honest gap, not a hard failure" discipline generate_content_package()
-# already established.
-_ESSENTIAL_TEMPLATE_KINDS = {"hook", "cta"}
+# Publish-readiness (2026-08-03, founder-defined bar): "ready" means a
+# campaign has everything required to actually be published, not just
+# enough to review — real media, title, description, captions, hashtags
+# (when applicable), a real destination URL, product/offer assignment,
+# call-to-action, and platform-specific requirements. Supersedes the
+# narrower hook/cta-only check this used to be. Every other TEMPLATE_KINDS
+# entry being missing is still recorded honestly in the step's result but
+# doesn't block it, the same "missing_kinds is an honest gap, not a hard
+# failure" discipline generate_content_package() already established.
+PUBLISH_ESSENTIAL_TEMPLATE_KINDS = {"title", "description", "hook", "cta", "caption_template"}
+
+# Platforms where a hashtag set is conventionally part of a real post — a
+# stated, editable assumption (the same class as affiliate_pipeline_
+# advance.ASSUMED_MONTHLY_LEADS), not a verified platform-API fact.
+# Hashtags are only required when the influencer targets at least one of
+# these — "hashtags (when applicable)", the founder's own qualifier —
+# since a blog/email/long-form-video campaign genuinely has none.
+HASHTAG_PLATFORMS = {"TikTok", "Instagram", "Twitter", "X"}
 
 
 def start_execution(campaign_id: str, campaign_registry: CampaignRegistry, plan_registry: ExecutionPlanRegistry) -> ExecutionPlan:
@@ -176,18 +187,50 @@ def _verify_readiness(step: ExecutionStep, campaign, influencer_registry: Influe
 
 
 def _produce_content(step: ExecutionStep, campaign, campaign_registry: CampaignRegistry, influencer_registry: InfluencerRegistry) -> None:
+    """Publish-ready, not just media-ready: every requirement the founder
+    named — real media, title, description, captions, hashtags (when
+    applicable), a real destination URL, product/offer assignment, CTA,
+    and platform declaration — is checked here, not just template
+    presence. A campaign that reaches "done" on this step can actually be
+    published; every missing requirement is named explicitly in the
+    blocked reason, never silently skipped.
+    """
     package = generate_content_package(campaign.id, step.influencer_id, campaign_registry, influencer_registry)
-    missing_essential = sorted(_ESSENTIAL_TEMPLATE_KINDS & set(package.missing_kinds))
-    if missing_essential:
+    influencer = influencer_registry.get_influencer(step.influencer_id)
+
+    missing_requirements = []
+
+    missing_templates = sorted(PUBLISH_ESSENTIAL_TEMPLATE_KINDS & set(package.missing_kinds))
+    hashtags_applicable = any(t.platform in HASHTAG_PLATFORMS for t in influencer.platform_targets)
+    if hashtags_applicable and "hashtags" in package.missing_kinds:
+        missing_templates.append("hashtags")
+    if missing_templates:
+        missing_requirements.append(f"missing templates: {sorted(missing_templates)}")
+
+    if not influencer.asset_library:
+        missing_requirements.append("no real media attached (atlas influencer asset attach)")
+    if not influencer.platform_targets:
+        missing_requirements.append("no platform declared for this influencer (atlas influencer platform add)")
+    if not campaign.destination_url:
+        missing_requirements.append("campaign has no destination_url (atlas campaign link-destination-url)")
+    if not campaign.product_offer:
+        missing_requirements.append("campaign has no product_offer")
+
+    if missing_requirements:
         step.status = "blocked"
-        step.result = {"reason": f"missing essential templates: {missing_essential}", "missing_kinds": package.missing_kinds}
+        step.result = {"reason": "not publish-ready: " + "; ".join(missing_requirements), "missing_kinds": package.missing_kinds}
         return
+
     step.status = "done"
     step.result = {
         "hooks": len(package.hooks),
         "ctas": len(package.ctas),
-        "scripts": len(package.scripts),
+        "titles": len(package.titles),
+        "descriptions": len(package.descriptions),
         "captions": len(package.captions),
+        "hashtags": len(package.hashtags),
+        "real_assets": len(influencer.asset_library),
+        "destination_url": campaign.destination_url,
         "missing_kinds": package.missing_kinds,
     }
 

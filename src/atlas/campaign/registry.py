@@ -66,6 +66,7 @@ def create_campaign(
     timeline: dict | None = None,
     success_kpis: list[str] | None = None,
     goal_id: str | None = None,
+    destination_url: str = "",
 ) -> Campaign:
     """Assembles a complete Campaign — the Campaign Intelligence Layer's
     real output, the thing the Decision Engine is meant to eventually
@@ -102,6 +103,7 @@ def create_campaign(
         success_kpis=success_kpis or [],
         confidence_score=result["score"],
         goal_id=goal_id,
+        destination_url=destination_url,
     )
     campaign.learning_history.append(
         {"at": now(), "event": "campaign_created", "confidence": result["score"], "factors_available": result["factors_available"]}
@@ -141,6 +143,18 @@ def link_goal(campaign_id: str, goal_id: str, registry: CampaignRegistry) -> Cam
     afterward rather than forcing every campaign to name a Goal upfront."""
     campaign = registry.get_campaign(campaign_id)
     campaign.goal_id = goal_id
+    registry.save_campaign(campaign)
+    return campaign
+
+
+def link_destination_url(campaign_id: str, destination_url: str, registry: CampaignRegistry) -> Campaign:
+    """Attaches a real destination URL to a campaign created without one —
+    the same direct, explicit pattern link_goal() already establishes.
+    Required for publish-readiness (see orchestrator.py): a CTA/landing-
+    page message is functionally meaningless without a real, clickable
+    link underneath it."""
+    campaign = registry.get_campaign(campaign_id)
+    campaign.destination_url = destination_url
     registry.save_campaign(campaign)
     return campaign
 

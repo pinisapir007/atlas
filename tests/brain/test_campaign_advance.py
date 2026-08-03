@@ -31,9 +31,10 @@ class _World:
         self.memory.save_goal(goal)
         return goal
 
-    def selected_opportunity(self, goal_id, product_name="KetoDNA") -> AffiliateOpportunity:
+    def selected_opportunity(self, goal_id, product_name="KetoDNA", real_affiliate_link="https://www.digistore24.com/redir/123456/myaffid/") -> AffiliateOpportunity:
         opportunity = AffiliateOpportunity(
-            product_name=product_name, description="a real product", goal_id=goal_id, stage="selected_for_marketing"
+            product_name=product_name, description="a real product", goal_id=goal_id, stage="selected_for_marketing",
+            real_affiliate_link=real_affiliate_link,
         )
         self.affiliate_store.save_opportunity(opportunity)
         return opportunity
@@ -130,6 +131,10 @@ def test_real_product_and_influencer_together_create_and_activate_a_campaign(tmp
     assert campaign.influencer_ids == [influencer.id]
     assert campaign.status == "active"
     assert campaign.business_objective == goal.description
+    # The real, already-validated affiliate link -- without this the
+    # campaign's CTA/landing-page content would have nothing real to
+    # point at (see orchestrator._produce_content()'s destination_url check).
+    assert campaign.destination_url == "https://www.digistore24.com/redir/123456/myaffid/"
 
 
 def test_creating_a_campaign_also_starts_its_execution_plan(tmp_path):

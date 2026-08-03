@@ -111,6 +111,17 @@ TEMPLATE_KINDS = {
     "voice_prompt",
     "caption_template",
     "landing_page_message",
+    # Added 2026-08-03 for publish-readiness (see
+    # orchestrator.PUBLISH_ESSENTIAL_TEMPLATE_KINDS): "title" and
+    # "description" are genuinely distinct from "hook"/"caption_template"
+    # for platforms that separate them (e.g. a YouTube title vs. its
+    # description), not folded into an existing kind. "hashtags" is its
+    # own kind rather than a structured list field, the same reasoning
+    # every other template kind already follows — real, founder-authored
+    # content, not a fabricated/generated set.
+    "title",
+    "description",
+    "hashtags",
 }
 
 
@@ -172,6 +183,9 @@ class ContentPackage:
     voice_prompts: list[str] = field(default_factory=list)
     captions: list[str] = field(default_factory=list)
     landing_page_messages: list[str] = field(default_factory=list)
+    titles: list[str] = field(default_factory=list)
+    descriptions: list[str] = field(default_factory=list)
+    hashtags: list[str] = field(default_factory=list)
     missing_kinds: list[str] = field(default_factory=list)
     id: str = field(default_factory=lambda: new_id("content-package"))
     created_at: str = field(default_factory=now)

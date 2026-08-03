@@ -47,6 +47,13 @@ class Campaign:
     target_audience: str = ""
     customer_problem: str = ""
     product_offer: str = ""
+    # The real, clickable link content actually drives traffic to — added
+    # 2026-08-03, publish-readiness: a campaign's CTA/landing-page copy is
+    # functionally meaningless without one. Copied from the real, already-
+    # validated AffiliateOpportunity.real_affiliate_link when the Decision
+    # Engine bridge creates a campaign (see campaign_advance.py) — never
+    # fabricated; "" until a real link is known.
+    destination_url: str = ""
     influencer_ids: list[str] = field(default_factory=list)
     platform_strategy: str = ""
     content_strategy: str = ""

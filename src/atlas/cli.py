@@ -14,7 +14,7 @@ from atlas.brain.kpi_intake import record_manual_cost, record_manual_refund, rec
 from atlas.brain.models import Finding, Task
 from atlas.core.registry import Registry, UnsupportedVerb, VERBS
 from atlas.app import run_app
-from atlas.campaign.registry import CampaignRegistry, create_campaign, link_goal, refresh_confidence, set_status
+from atlas.campaign.registry import CampaignRegistry, create_campaign, link_destination_url, link_goal, refresh_confidence, set_status
 from atlas.influencer.models import TEMPLATE_KINDS, DigitalInfluencer, IdentityProfile
 from atlas.influencer.performance import record_metric
 from atlas.influencer.production import add_template, generate_campaign_content, templates_of_kind
@@ -328,6 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_create.add_argument("--budget", type=float, default=None)
     campaign_create.add_argument("--success-kpi", action="append", default=[], dest="success_kpis", help="a real KPI series name this campaign considers success (repeatable)")
     campaign_create.add_argument("--goal-id", default=None, dest="goal_id")
+    campaign_create.add_argument("--destination-url", default="", dest="destination_url", help="the real, clickable link content drives traffic to")
 
     campaign_sub.add_parser("list", help="list every campaign")
 
@@ -348,6 +349,10 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_link_goal = campaign_sub.add_parser("link-goal", help="attach a real Goal to a campaign created without one")
     campaign_link_goal.add_argument("campaign_id")
     campaign_link_goal.add_argument("goal_id")
+
+    campaign_link_url = campaign_sub.add_parser("link-destination-url", help="attach a real destination URL to a campaign created without one")
+    campaign_link_url.add_argument("campaign_id")
+    campaign_link_url.add_argument("destination_url")
 
     # Campaign-scoped Measurement/Finance entry points (2026-08-03): the
     # `atlas affiliate revenue/cost/fee/settlement/refund record` commands
@@ -937,7 +942,7 @@ def _cmd_campaign(args: argparse.Namespace) -> None:
             revenue_goal=args.revenue_goal, target_audience=args.target_audience, customer_problem=args.customer_problem,
             platform_strategy=args.platform_strategy, content_strategy=args.content_strategy, content_formats=args.content_formats,
             landing_page_strategy=args.landing_page_strategy, cta_strategy=args.cta_strategy, budget=args.budget,
-            success_kpis=args.success_kpis, goal_id=args.goal_id,
+            success_kpis=args.success_kpis, goal_id=args.goal_id, destination_url=args.destination_url,
         )
         print(f"{campaign.id}\t{campaign.business_objective}\t{campaign.product_offer}\tconfidence={campaign.confidence_score}")
 
@@ -954,6 +959,7 @@ def _cmd_campaign(args: argparse.Namespace) -> None:
         print(f"  Target audience: {campaign.target_audience or '(not set)'}")
         print(f"  Customer problem: {campaign.customer_problem or '(not set)'}")
         print(f"  Product / Offer: {campaign.product_offer or '(not set)'}")
+        print(f"  Destination URL: {campaign.destination_url or '(not set)'}")
         print(f"  Digital Influencer(s): {', '.join(campaign.influencer_ids) or '(none)'}")
         print(f"  Platform strategy: {campaign.platform_strategy or '(not set)'}")
         print(f"  Content strategy: {campaign.content_strategy or '(not set)'}\tFormats: {campaign.content_formats}")
@@ -981,6 +987,9 @@ def _cmd_campaign(args: argparse.Namespace) -> None:
             print(f"voice_prompts: {package.voice_prompts}")
             print(f"captions: {package.captions}")
             print(f"landing_page_messages: {package.landing_page_messages}")
+            print(f"titles: {package.titles}")
+            print(f"descriptions: {package.descriptions}")
+            print(f"hashtags: {package.hashtags}")
             print(f"missing_kinds: {package.missing_kinds}")
 
     elif cmd == "activate":
@@ -990,6 +999,10 @@ def _cmd_campaign(args: argparse.Namespace) -> None:
     elif cmd == "link-goal":
         campaign = link_goal(args.campaign_id, args.goal_id, registry)
         print(f"{campaign.id}\tgoal={campaign.goal_id}")
+
+    elif cmd == "link-destination-url":
+        campaign = link_destination_url(args.campaign_id, args.destination_url, registry)
+        print(f"{campaign.id}\tdestination_url={campaign.destination_url}")
 
     elif cmd == "revenue":
         if args.campaign_revenue_command == "record":

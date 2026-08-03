@@ -7,9 +7,14 @@ from atlas.brain.models import Goal
 from atlas.campaign.registry import CampaignRegistry, create_campaign, link_goal, set_status
 from atlas.influencer.models import DigitalInfluencer, IdentityProfile
 from atlas.influencer.production import add_template
-from atlas.influencer.registry import InfluencerRegistry
+from atlas.influencer.registry import InfluencerRegistry, add_platform_target, attach_asset
 from atlas.orchestrator.orchestrator import advance_all_campaign_executions, advance_execution, start_execution
 from atlas.orchestrator.registry import ExecutionPlanRegistry
+
+# Every template kind PUBLISH_ESSENTIAL_TEMPLATE_KINDS requires, for a
+# platform not in HASHTAG_PLATFORMS (so hashtags stay optional in these
+# fixtures unless a test explicitly cares about that conditionality).
+_PUBLISH_READY_KINDS = ("title", "description", "hook", "cta", "caption_template")
 
 
 class _World:
@@ -32,15 +37,25 @@ class _World:
         self.influencers.save_influencer(influencer)
         return influencer
 
-    def new_ready_campaign(self, influencer_ids, goal_id="goal-a", product_offer="KetoDNA"):
+    def new_ready_campaign(self, influencer_ids, goal_id="goal-a", product_offer="KetoDNA", destination_url="https://example.com/track/real"):
         if goal_id is not None and goal_id not in {g.id for g in self.memory.goals()}:
             self.memory.save_goal(Goal(description="real campaign goal", id=goal_id))
         campaign = create_campaign(
             business_objective="grow affiliate revenue", category="affiliate", product_offer=product_offer,
             influencer_ids=influencer_ids, influencer_registry=self.influencers, knowledge=self.knowledge,
             memory=self.memory, kpis=self.kpis, registry=self.campaigns, goal_id=goal_id,
+            destination_url=destination_url,
         )
         return set_status(campaign.id, "active", self.campaigns)
+
+    def make_publish_ready(self, influencer_id, kinds=_PUBLISH_READY_KINDS):
+        """Adds every template kind requested, one real attached asset, and
+        one declared platform target — everything _produce_content()
+        requires for "done" beyond the campaign's own fields."""
+        for kind in kinds:
+            add_template(influencer_id, kind, f"{kind}-1", f"real {kind} about {{product_name}}", self.influencers)
+        attach_asset(influencer_id, "image", "https://example.com/real-asset.jpg", self.influencers)
+        add_platform_target(influencer_id, "YouTube", "@handle", self.influencers)
 
     def advance(self, plan_id):
         return advance_execution(plan_id, self.plans, self.campaigns, self.influencers, self.memory, self.kpis, self.knowledge)
@@ -172,10 +187,9 @@ def test_produce_content_blocks_without_essential_templates(world):
     assert "hook" in produce.result["reason"] or "cta" in produce.result["reason"]
 
 
-def test_produce_content_succeeds_once_essential_templates_exist(world):
+def test_produce_content_succeeds_once_publish_ready(world):
     influencer = world.new_influencer()
-    add_template(influencer.id, "hook", "h1", "Nobody tells you this about {product_name}...", world.influencers)
-    add_template(influencer.id, "cta", "c1", "Try {product_name} today.", world.influencers)
+    world.make_publish_ready(influencer.id)
     campaign = world.new_ready_campaign([influencer.id])
     plan = start_execution(campaign.id, world.campaigns, world.plans)
 
@@ -185,6 +199,64 @@ def test_produce_content_succeeds_once_essential_templates_exist(world):
     assert produce.status == "done"
     assert produce.result["hooks"] == 1
     assert produce.result["ctas"] == 1
+    assert produce.result["titles"] == 1
+    assert produce.result["descriptions"] == 1
+    assert produce.result["real_assets"] == 1
+
+
+def test_produce_content_blocks_on_missing_destination_url_even_with_full_templates(world):
+    influencer = world.new_influencer()
+    world.make_publish_ready(influencer.id)
+    campaign = world.new_ready_campaign([influencer.id], destination_url="")
+    plan = start_execution(campaign.id, world.campaigns, world.plans)
+
+    advanced = world.advance(plan.id)
+
+    produce = next(s for s in advanced.steps if s.kind == "produce_content")
+    assert produce.status == "blocked"
+    assert "destination_url" in produce.result["reason"]
+
+
+def test_produce_content_blocks_without_real_media_even_with_full_templates(world):
+    influencer = world.new_influencer()
+    world.make_publish_ready(influencer.id, kinds=_PUBLISH_READY_KINDS)
+    # undo the real asset attach_asset() already did, to isolate this one requirement
+    stored = world.influencers.get_influencer(influencer.id)
+    stored.asset_library = []
+    world.influencers.save_influencer(stored)
+    campaign = world.new_ready_campaign([influencer.id])
+    plan = start_execution(campaign.id, world.campaigns, world.plans)
+
+    advanced = world.advance(plan.id)
+
+    produce = next(s for s in advanced.steps if s.kind == "produce_content")
+    assert produce.status == "blocked"
+    assert "real media" in produce.result["reason"]
+
+
+def test_produce_content_requires_hashtags_only_when_the_platform_conventionally_uses_them(world):
+    influencer = world.new_influencer()
+    world.make_publish_ready(influencer.id)  # platform target is "YouTube" -- not in HASHTAG_PLATFORMS
+    campaign = world.new_ready_campaign([influencer.id])
+    plan = start_execution(campaign.id, world.campaigns, world.plans)
+    world.advance(plan.id)
+    produce = next(s for s in world.plans.get_plan(plan.id).steps if s.kind == "produce_content")
+    assert produce.status == "done"  # no hashtags added, but none required for YouTube
+
+    influencer2 = world.new_influencer("Kai")
+    world.make_publish_ready(influencer2.id)
+    add_platform_target(influencer2.id, "TikTok", "@kai", world.influencers)  # IS in HASHTAG_PLATFORMS
+    campaign2 = world.new_ready_campaign([influencer2.id], goal_id="goal-b")
+    plan2 = start_execution(campaign2.id, world.campaigns, world.plans)
+    world.advance(plan2.id)
+    produce2 = next(s for s in world.plans.get_plan(plan2.id).steps if s.kind == "produce_content")
+    assert produce2.status == "blocked"
+    assert "hashtags" in produce2.result["reason"]
+
+    add_template(influencer2.id, "hashtags", "h1", "#keto #diet", world.influencers)
+    world.advance(plan2.id)
+    produce2 = next(s for s in world.plans.get_plan(plan2.id).steps if s.kind == "produce_content")
+    assert produce2.status == "done"
 
 
 # --- request_founder_review + check_measurement -----------------------------
@@ -192,8 +264,7 @@ def test_produce_content_succeeds_once_essential_templates_exist(world):
 
 def _fully_produced_campaign(world):
     influencer = world.new_influencer()
-    add_template(influencer.id, "hook", "h1", "Nobody tells you this about {product_name}...", world.influencers)
-    add_template(influencer.id, "cta", "c1", "Try {product_name} today.", world.influencers)
+    world.make_publish_ready(influencer.id)
     campaign = world.new_ready_campaign([influencer.id])
     plan = start_execution(campaign.id, world.campaigns, world.plans)
     world.advance(plan.id)  # cascades verify_readiness -> produce_content

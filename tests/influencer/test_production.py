@@ -124,7 +124,8 @@ def test_generate_content_package_reports_every_missing_kind_honestly(tmp_path):
     assert "hook" not in package.missing_kinds
     assert "cta" in package.missing_kinds
     assert "script_template" in package.missing_kinds
-    assert len(package.missing_kinds) == 7  # every TEMPLATE_KINDS entry except "hook"
+    from atlas.influencer.models import TEMPLATE_KINDS
+    assert len(package.missing_kinds) == len(TEMPLATE_KINDS) - 1  # every TEMPLATE_KINDS entry except "hook"
 
 
 def test_generate_content_package_uses_multiple_templates_of_the_same_kind(tmp_path):

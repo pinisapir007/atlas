@@ -553,13 +553,19 @@ def test_tick_bridges_a_decision_engine_goal_with_a_real_selected_product_into_a
     brain.memory.save_goal(goal)
     from atlas.assets.affiliate_department.models import AffiliateOpportunity
     brain.affiliate_store.save_opportunity(
-        AffiliateOpportunity(product_name="KetoDNA", description="a real product", goal_id=goal.id, stage="selected_for_marketing")
+        AffiliateOpportunity(
+            product_name="KetoDNA", description="a real product", goal_id=goal.id, stage="selected_for_marketing",
+            real_affiliate_link="https://www.digistore24.com/redir/123456/myaffid/",
+        )
     )
     influencer = DigitalInfluencer(identity=IdentityProfile(name="Mira"), categories=["affiliate"])
     brain.influencers.save_influencer(influencer)
     from atlas.influencer.production import add_template
-    add_template(influencer.id, "hook", "h1", "Nobody tells you this about {product_name}...", brain.influencers)
-    add_template(influencer.id, "cta", "c1", "Try {product_name} today.", brain.influencers)
+    from atlas.influencer.registry import add_platform_target, attach_asset
+    for kind in ("title", "description", "hook", "cta", "caption_template"):
+        add_template(influencer.id, kind, f"{kind}-1", f"real {kind} about {{product_name}}", brain.influencers)
+    attach_asset(influencer.id, "image", "https://example.com/real-asset.jpg", brain.influencers)
+    add_platform_target(influencer.id, "YouTube", "@handle", brain.influencers)
 
     brain.tick()
 
@@ -589,13 +595,19 @@ def test_approved_campaign_review_task_dispatches_to_the_real_campaign_execution
     brain.memory.save_goal(goal)
     from atlas.assets.affiliate_department.models import AffiliateOpportunity
     brain.affiliate_store.save_opportunity(
-        AffiliateOpportunity(product_name="KetoDNA", description="a real product", goal_id=goal.id, stage="selected_for_marketing")
+        AffiliateOpportunity(
+            product_name="KetoDNA", description="a real product", goal_id=goal.id, stage="selected_for_marketing",
+            real_affiliate_link="https://www.digistore24.com/redir/123456/myaffid/",
+        )
     )
     influencer = DigitalInfluencer(identity=IdentityProfile(name="Mira"), categories=["affiliate"])
     brain.influencers.save_influencer(influencer)
     from atlas.influencer.production import add_template
-    add_template(influencer.id, "hook", "h1", "Nobody tells you this about {product_name}...", brain.influencers)
-    add_template(influencer.id, "cta", "c1", "Try {product_name} today.", brain.influencers)
+    from atlas.influencer.registry import add_platform_target, attach_asset
+    for kind in ("title", "description", "hook", "cta", "caption_template"):
+        add_template(influencer.id, kind, f"{kind}-1", f"real {kind} about {{product_name}}", brain.influencers)
+    attach_asset(influencer.id, "image", "https://example.com/real-asset.jpg", brain.influencers)
+    add_platform_target(influencer.id, "YouTube", "@handle", brain.influencers)
     brain.tick()
 
     campaign = brain.campaigns.campaigns()[0]

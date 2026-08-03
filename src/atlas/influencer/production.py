@@ -69,6 +69,9 @@ def generate_content_package(
         voice_prompts=_filled("voice_prompt"),
         captions=_filled("caption_template"),
         landing_page_messages=_filled("landing_page_message"),
+        titles=_filled("title"),
+        descriptions=_filled("description"),
+        hashtags=_filled("hashtags"),
         missing_kinds=sorted(kind for kind in TEMPLATE_KINDS if not templates_of_kind(influencer, kind)),
     )
 

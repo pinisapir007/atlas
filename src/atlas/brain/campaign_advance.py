@@ -111,6 +111,11 @@ def advance_decision_driven_campaigns(
             kpis=kpis,
             registry=campaigns,
             goal_id=goal.id,
+            # The real, already-validated affiliate link (see
+            # affiliate_department.models.validate_provider_link(), run at
+            # real product intake) — without this, the campaign's CTA/
+            # landing-page content would have nothing real to point at.
+            destination_url=opportunity.real_affiliate_link,
         )
         set_status(campaign.id, "active", campaigns)
         start_execution(campaign.id, campaigns, execution_plans)

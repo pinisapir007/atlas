@@ -5,7 +5,7 @@ from atlas.brain.kpi import KPIRegistry
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Finding, Goal, Task
 from atlas.campaign.models import Campaign
-from atlas.campaign.registry import CampaignRegistry, create_campaign, refresh_confidence
+from atlas.campaign.registry import CampaignRegistry, create_campaign, link_destination_url, refresh_confidence
 from atlas.influencer.models import DigitalInfluencer, IdentityProfile
 from atlas.influencer.registry import InfluencerRegistry
 
@@ -229,3 +229,44 @@ def test_refresh_confidence_reacts_to_real_measured_profit_the_same_way_decide_d
     after = refresh_confidence(campaign.id, knowledge, memory, kpis, campaign_registry)
 
     assert after.confidence_score > before
+
+
+# --- destination_url (2026-08-03, publish-readiness) ------------------------
+
+
+def test_destination_url_defaults_to_blank_never_fabricated(tmp_path):
+    campaign = Campaign(business_objective="a")
+
+    assert campaign.destination_url == ""
+
+
+def test_create_campaign_accepts_a_real_destination_url(tmp_path):
+    influencer_registry = _influencer_registry(tmp_path)
+    influencer = _new_influencer(influencer_registry)
+    campaign_registry = _campaign_registry(tmp_path)
+
+    campaign = create_campaign(
+        business_objective="a", category="affiliate", product_offer="KetoDNA", influencer_ids=[influencer.id],
+        influencer_registry=influencer_registry, knowledge=_knowledge(tmp_path), memory=_memory(tmp_path), kpis=_kpis(tmp_path),
+        registry=campaign_registry, destination_url="https://example.com/track/real",
+    )
+
+    assert campaign.destination_url == "https://example.com/track/real"
+    assert campaign_registry.get_campaign(campaign.id).destination_url == "https://example.com/track/real"
+
+
+def test_link_destination_url_attaches_a_real_url_to_an_existing_campaign(tmp_path):
+    influencer_registry = _influencer_registry(tmp_path)
+    influencer = _new_influencer(influencer_registry)
+    campaign_registry = _campaign_registry(tmp_path)
+    campaign = create_campaign(
+        business_objective="a", category="affiliate", product_offer="KetoDNA", influencer_ids=[influencer.id],
+        influencer_registry=influencer_registry, knowledge=_knowledge(tmp_path), memory=_memory(tmp_path), kpis=_kpis(tmp_path),
+        registry=campaign_registry,
+    )
+    assert campaign.destination_url == ""
+
+    updated = link_destination_url(campaign.id, "https://example.com/track/real", campaign_registry)
+
+    assert updated.destination_url == "https://example.com/track/real"
+    assert campaign_registry.get_campaign(campaign.id).destination_url == "https://example.com/track/real"

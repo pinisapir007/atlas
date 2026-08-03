@@ -653,13 +653,16 @@ def test_campaign_execution_full_lifecycle_via_cli(tmp_path, monkeypatch, capsys
     goal_id = capsys.readouterr().out.strip().split("\t")[0]
     main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
     influencer_id = capsys.readouterr().out.strip().split("\t")[0]
-    main(["influencer", "template", "add", influencer_id, "--kind", "hook", "--name", "h1", "--content", "Nobody tells you this about {product_name}..."])
+    for kind in ("title", "description", "hook", "cta", "caption_template"):
+        main(["influencer", "template", "add", influencer_id, "--kind", kind, "--name", f"{kind}-1", "--content", f"real {kind} about {{product_name}}"])
+        capsys.readouterr()
+    main(["influencer", "asset", "attach", influencer_id, "--type", "image", "--reference", "https://example.com/real-asset.jpg"])
     capsys.readouterr()
-    main(["influencer", "template", "add", influencer_id, "--kind", "cta", "--name", "c1", "--content", "Try {product_name} today."])
+    main(["influencer", "platform", "add", influencer_id, "--platform", "YouTube", "--handle", "@handle"])
     capsys.readouterr()
     main(
         ["campaign", "create", "--objective", "grow affiliate revenue", "--category", "affiliate", "--product", "KetoDNA",
-         "--influencer", influencer_id, "--goal-id", goal_id]
+         "--influencer", influencer_id, "--goal-id", goal_id, "--destination-url", "https://example.com/track/real"]
     )
     campaign_id = capsys.readouterr().out.strip().split("\t")[0]
 
@@ -715,6 +718,24 @@ def test_campaign_link_goal(tmp_path, monkeypatch, capsys):
     assert "goal-a" in out
 
 
+def test_campaign_link_destination_url(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
+    influencer_id = capsys.readouterr().out.strip().split("\t")[0]
+    main(["campaign", "create", "--objective", "a", "--category", "affiliate", "--product", "KetoDNA", "--influencer", influencer_id])
+    campaign_id = capsys.readouterr().out.strip().split("\t")[0]
+
+    exit_code = main(["campaign", "link-destination-url", campaign_id, "https://example.com/track/real"])
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "https://example.com/track/real" in out
+
+    main(["campaign", "show", campaign_id])
+    show_out = capsys.readouterr().out
+    assert "https://example.com/track/real" in show_out
+
+
 def _campaign_with_goal(monkeypatch, tmp_path, capsys):
     monkeypatch.chdir(tmp_path)
     main(["brain", "goal", "add", "grow affiliate revenue"])
@@ -723,7 +744,7 @@ def _campaign_with_goal(monkeypatch, tmp_path, capsys):
     influencer_id = capsys.readouterr().out.strip().split("\t")[0]
     main(
         ["campaign", "create", "--objective", "a", "--category", "affiliate", "--product", "KetoDNA",
-         "--influencer", influencer_id, "--goal-id", goal_id]
+         "--influencer", influencer_id, "--goal-id", goal_id, "--destination-url", "https://example.com/track/real"]
     )
     campaign_id = capsys.readouterr().out.strip().split("\t")[0]
     return campaign_id, goal_id
@@ -787,9 +808,12 @@ def test_campaign_revenue_record_unblocks_check_measurement_end_to_end(tmp_path,
     campaign_id, goal_id = _campaign_with_goal(monkeypatch, tmp_path, capsys)
     main(["influencer", "list"])
     influencer_id = capsys.readouterr().out.strip().split("\t")[0]
-    main(["influencer", "template", "add", influencer_id, "--kind", "hook", "--name", "h1", "--content", "Nobody tells you this about {product_name}..."])
+    for kind in ("title", "description", "hook", "cta", "caption_template"):
+        main(["influencer", "template", "add", influencer_id, "--kind", kind, "--name", f"{kind}-1", "--content", f"real {kind} about {{product_name}}"])
+        capsys.readouterr()
+    main(["influencer", "asset", "attach", influencer_id, "--type", "image", "--reference", "https://example.com/real-asset.jpg"])
     capsys.readouterr()
-    main(["influencer", "template", "add", influencer_id, "--kind", "cta", "--name", "c1", "--content", "Try {product_name} today."])
+    main(["influencer", "platform", "add", influencer_id, "--platform", "YouTube", "--handle", "@handle"])
     capsys.readouterr()
     main(["campaign", "activate", campaign_id])
     capsys.readouterr()
