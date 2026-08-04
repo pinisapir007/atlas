@@ -32,6 +32,7 @@ from atlas.brain.opportunity_discovery_engine import discover_opportunities
 from atlas.brain.resource_allowlist import ResourceAllowlist
 from atlas.brain.resource_discovery_engine import scan_resources
 from atlas.brain.resource_index import ResourceIndex
+from atlas.brain.decision_engine_integration import WAIT, TaskExecutionRequirements, evaluate_task_readiness
 from atlas.integrations.digistore24 import Digistore24Provider
 from atlas.orchestrator.orchestrator import advance_execution, start_execution
 
@@ -537,6 +538,16 @@ def build_parser() -> argparse.ArgumentParser:
     resources_index_parser.add_argument("--folder", default=None, help="only show resources under this real folder path")
     resources_index_parser.add_argument("--type", default=None, dest="resource_type", choices=["file", "folder", "symlink"], help="only show resources of this type")
 
+    decide_parser = subparsers.add_parser("decide", help="Decision Engine Integration V1: deterministic EXECUTE/WAIT readiness for one real task, using Resource Discovery + Opportunity Discovery + Time Awareness")
+    decide_sub = decide_parser.add_subparsers(dest="decide_command", required=True)
+    decide_task = decide_sub.add_parser("task", help="evaluate one real task's readiness to execute")
+    decide_task.add_argument("task_id", help="the real task id (see 'atlas brain goal list' / task ids in approvals)")
+    decide_task.add_argument("--require-resource", action="append", default=[], dest="required_resource_paths", help="a real approved resource path required for this task (repeatable)")
+    decide_task.add_argument("--opportunity-category", default=None, help="the real opportunity category this task needs evidence for, e.g. affiliate")
+    decide_task.add_argument("--min-confidence", type=float, default=None, dest="min_opportunity_confidence", help="minimum real opportunity confidence score required")
+    decide_task.add_argument("--deadline", default=None, dest="deadline_iso", help="a real ISO-8601 deadline this task must still have time before")
+    decide_task.add_argument("--min-remaining-seconds", type=float, default=0.0, dest="minimum_remaining_seconds", help="minimum real seconds that must remain before --deadline")
+
     return parser
 
 
@@ -585,6 +596,8 @@ def main(argv: list[str] | None = None) -> int:
             _cmd_portfolio(args)
         elif args.command == "resources":
             _cmd_resources(args)
+        elif args.command == "decide":
+            _cmd_decide(args)
         else:
             _cmd_verb(args.command, args.asset)
     except (KeyError, UnsupportedVerb, ValueError) as exc:
@@ -1298,6 +1311,31 @@ def _cmd_resources(args: argparse.Namespace) -> None:
             for r in resources:
                 size_str = f"{r.size_bytes}B" if r.size_bytes is not None else "-"
                 print(f"[{r.resource_type}] {r.path}\tname={r.name}\tsize={size_str}\tmodified={r.modified_at or '-'}\thash={r.content_hash or '-'}")
+
+
+def _cmd_decide(args: argparse.Namespace) -> None:
+    cmd = args.decide_command
+    brain = CEOBrain()
+
+    if cmd == "task":
+        task = brain.memory.get_task(args.task_id)
+        requirements = TaskExecutionRequirements(
+            required_resource_paths=args.required_resource_paths,
+            opportunity_category=args.opportunity_category,
+            min_opportunity_confidence=args.min_opportunity_confidence,
+            deadline_iso=args.deadline_iso,
+            minimum_remaining_seconds=args.minimum_remaining_seconds,
+        )
+        readiness = evaluate_task_readiness(task, requirements, knowledge=brain.knowledge)
+
+        print(f"Task {readiness.task_id}: {readiness.decision}")
+        for check_name, check in readiness.checks.items():
+            status_str = "OK" if check["passed"] else f"BLOCKED -- {check['reason']}"
+            print(f"  {check_name}: {status_str}")
+        if readiness.decision == WAIT:
+            print("Blocking reason(s):")
+            for reason in readiness.reasons:
+                print(f"  - {reason}")
 
 
 def _cmd_campaign(args: argparse.Namespace) -> None:
