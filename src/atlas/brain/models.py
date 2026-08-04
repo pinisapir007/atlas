@@ -2,6 +2,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from atlas.brain.time_service import TimeService, seconds_between
+
 
 def new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
@@ -69,11 +71,41 @@ class Task:
     created_at: str = field(default_factory=now)
     updated_at: str = field(default_factory=now)
     history: list[dict] = field(default_factory=list)
+    # Time Awareness Engine V1 (2026-08-05) -- additive, real-execution
+    # timing. started_at is set the first time this task's real work
+    # actually begins: "delegated" is the real signal in this codebase
+    # today (registry.dispatch() has already been called by the time
+    # delegator.py transitions to it) -- "in_progress" is also honored
+    # for forward compatibility with the lifecycle this class's own
+    # docstring documents, even though no real code path reaches it yet.
+    # finished_at/duration/execution_time are set once, on the first
+    # real transition to "done" or "failed" -- "blocked" is deliberately
+    # not terminal here, since a blocked task can still be picked up
+    # later. duration is the real active-execution span (finished_at -
+    # started_at); execution_time is the real total end-to-end span
+    # (finished_at - created_at), including any time spent planned/
+    # pending/approval-waiting before real dispatch began -- two
+    # genuinely different real measurements, not a duplicate field.
+    # updated_at (above) already IS "last_updated" -- no second,
+    # redundantly-named field for the same real value.
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration: float | None = None
+    execution_time: float | None = None
 
-    def transition(self, status: str, reason: str = "") -> None:
+    def transition(self, status: str, reason: str = "", time_service: "TimeService | None" = None) -> None:
+        ts = time_service if time_service is not None else TimeService()
         self.status = status
         self.updated_at = now()
         self.history.append({"at": self.updated_at, "status": status, "reason": reason})
+
+        if status in ("delegated", "in_progress") and self.started_at is None:
+            self.started_at = ts.iso_timestamp()
+        if status in ("done", "failed") and self.finished_at is None:
+            self.finished_at = ts.iso_timestamp()
+            if self.started_at is not None:
+                self.duration = seconds_between(self.started_at, self.finished_at)
+            self.execution_time = seconds_between(self.created_at, self.finished_at)
 
 
 @dataclass

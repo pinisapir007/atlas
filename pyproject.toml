@@ -7,6 +7,15 @@ name = "atlas"
 version = "0.1.0"
 description = "Orchestrator for MAYA and future digital assets"
 requires-python = ">=3.11"
+# tzdata (2026-08-05, Time Awareness Engine V1): pure IANA timezone
+# data, officially maintained by CPython core -- no logic, just data.
+# Required for zoneinfo.ZoneInfo("Asia/Jerusalem") to resolve at all on
+# Windows, which (unlike Linux/macOS) ships no system tz database.
+# Verified: without it, ZoneInfo raises ZoneInfoNotFoundError outright
+# on this project's real deployment platform. Windows-conditional via
+# the standard PEP 508 marker -- a no-op include on platforms that
+# already have system tz data.
+dependencies = ["tzdata; sys_platform == 'win32'"]
 
 [project.scripts]
 atlas = "atlas.cli:main"
