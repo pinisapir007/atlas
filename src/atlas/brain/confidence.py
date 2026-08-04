@@ -91,6 +91,20 @@ BOOTSTRAP_TASK_CATEGORY = {
     "recruitment": "revenue_recruitment_leads",
 }
 
+# Opportunity Discovery V1 override (2026-08-03, feature_flags.
+# opportunity_discovery_v1_enabled()-gated in decision_apply.py): once real,
+# evidence-driven discovery is live, "affiliate" should bootstrap into the
+# pipeline that can actually reach a real Campaign (affiliate_intelligence —
+# see campaign_advance.py's bridge) rather than affiliate_pipeline
+# (AffiliateDepartmentAgent), whose discovered -> selected -> content_planned
+# state machine is documented as terminal and structurally can never reach
+# selected_for_marketing. A separate override map, not an edit to
+# BOOTSTRAP_TASK_CATEGORY directly, so the change stays opt-in and fully
+# reversible by unsetting one env var.
+OPPORTUNITY_DISCOVERY_BOOTSTRAP_OVERRIDES = {
+    "affiliate": "affiliate_intelligence",
+}
+
 # Real, dispatchable Task categories whose executor is a hardcoded
 # placeholder today — grepped from the actual channel source
 # (revenue/channels/{affiliate,digital_products,content_assets}.py all
@@ -116,7 +130,9 @@ def goals_touching_category(category: str, memory: BrainMemory) -> list[Goal]:
     return [g for g in memory.goals() if g.id in goal_ids]
 
 
-def source_corroboration_score(category: str, knowledge: KnowledgeBase, provider: str | None = None) -> float | None:
+def source_corroboration_score(
+    category: str, knowledge: KnowledgeBase, provider: str | None = None, subject: str | None = None
+) -> float | None:
     """Factors 1+2 (number and quality of independent sources, source
     reliability) combined: v1 reliability is deliberately binary — a
     finding either carries a real evidence URL or it doesn't. A per-domain
@@ -131,26 +147,39 @@ def source_corroboration_score(category: str, knowledge: KnowledgeBase, provider
     category-general findings: mixing "affiliate marketing pays well
     generally" into a Digistore24-vs-ShareASale comparison would blur the
     exact distinction this scoping exists to make.
+
+    `subject`, when given, scopes the same exact-match way one level
+    deeper — to a specific candidate product/topic (Finding.subject) —
+    the mechanism opportunity_ranking.py uses to compare specific
+    opportunities within a category (2026-08-03, Opportunity Discovery V1).
     """
     sourced = [
         f
         for f in knowledge.findings()
-        if f.category == category and f.evidence and (provider is None or f.provider == provider)
+        if f.category == category
+        and f.evidence
+        and (provider is None or f.provider == provider)
+        and (subject is None or f.subject == subject)
     ]
     if not sourced:
         return None
     return min(len(sourced) / SOURCE_SATURATION_SAMPLE, 1.0)
 
 
-def recency_score(category: str, knowledge: KnowledgeBase, provider: str | None = None) -> float | None:
+def recency_score(
+    category: str, knowledge: KnowledgeBase, provider: str | None = None, subject: str | None = None
+) -> float | None:
     """Factor 3. Average freshness of this category's findings — a category
     with only stale findings scores low (real signal), a category with no
     findings at all scores None (no signal, not a false zero). `provider`
-    scopes the same way as source_corroboration_score() — see there."""
+    and `subject` scope the same way as source_corroboration_score() —
+    see there."""
     findings = [
         f
         for f in knowledge.findings()
-        if f.category == category and (provider is None or f.provider == provider)
+        if f.category == category
+        and (provider is None or f.provider == provider)
+        and (subject is None or f.subject == subject)
     ]
     if not findings:
         return None

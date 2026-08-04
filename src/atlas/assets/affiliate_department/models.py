@@ -114,6 +114,13 @@ class AffiliateOpportunity:
     # opportunities never set this). Root-cause fix for generated copy that
     # read as generic "software" marketing for a niche product.
     marketing_niche: str = ""
+    # The country/language this opportunity's real evidence points to —
+    # set only by Opportunity Discovery V1 (atlas.brain.opportunity_
+    # discovery_advance) from the most common real Finding.market behind
+    # this opportunity's ranking (see atlas.brain.opportunity_ranking).
+    # "" for every founder-manual intake and every opportunity with no
+    # market-tagged evidence — never a guess.
+    recommended_market: str = ""
     # {} until CreativeAgent runs; then {"type": "image"|"short_video",
     # "status": "brief_ready", "brief": {...}}. "status" only ever becomes
     # "ready" (with a "reference" key added) via

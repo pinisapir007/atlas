@@ -1,4 +1,5 @@
-from atlas.brain.confidence import BOOTSTRAP_TASK_CATEGORY
+from atlas.brain.confidence import BOOTSTRAP_TASK_CATEGORY, OPPORTUNITY_DISCOVERY_BOOTSTRAP_OVERRIDES
+from atlas.brain.feature_flags import opportunity_discovery_v1_enabled
 from atlas.brain.models import Decision, Goal, Task
 
 
@@ -35,10 +36,13 @@ def apply_decision(decision: Decision) -> tuple[Goal | None, Task | None]:
             ),
             engine_id=engine_id,
         )
+        bootstrap_category = BOOTSTRAP_TASK_CATEGORY[decision.category]
+        if opportunity_discovery_v1_enabled() and decision.category in OPPORTUNITY_DISCOVERY_BOOTSTRAP_OVERRIDES:
+            bootstrap_category = OPPORTUNITY_DISCOVERY_BOOTSTRAP_OVERRIDES[decision.category]
         task = Task(
             goal_id=goal.id,
             description=f"Bootstrap {decision.category} pipeline from Intelligence findings",
-            category=BOOTSTRAP_TASK_CATEGORY[decision.category],
+            category=bootstrap_category,
             reversible=True,
         )
     else:  # propose_capability

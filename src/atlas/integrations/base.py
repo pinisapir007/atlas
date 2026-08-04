@@ -66,3 +66,33 @@ class ContentPublisher(Protocol):
     name: str
 
     def publish(self, content: dict) -> dict: ...
+
+
+@runtime_checkable
+class MarketSignalProvider(Protocol):
+    """A real source of external demand/market signal data — search
+    trends, a marketplace's product catalog, social platform trending
+    topics, and similar (2026-08-03, Opportunity Discovery V1). Reserved,
+    the same way ContentPublisher is: no implementation exists yet
+    anywhere in this codebase. Picking and integrating one is a separate,
+    explicitly-scoped, credentialed decision — not something this
+    Protocol's existence implies is ready to build. See
+    atlas.integrations.signal_registry, which starts empty for exactly
+    this reason.
+    """
+
+    name: str
+    # The Finding/Task category this signal source is evidence for (e.g.
+    # "affiliate") — the same structural, no-credential-required fact
+    # CommerceProvider.category already establishes.
+    category: str
+
+    def fetch_signals(self) -> list[dict] | None:
+        """Real, live demand-signal data from this source, if a real
+        credential is configured and the live call is actually
+        implemented. None means "not available right now" — no credential
+        configured, or the real API call itself isn't built yet. Never an
+        empty list standing in for "checked, found nothing" when nothing
+        was actually checked — the same fail-closed rule
+        CommerceProvider.fetch_recent_sales() already follows."""
+        ...

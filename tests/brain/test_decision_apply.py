@@ -25,6 +25,35 @@ def test_invest_verdict_creates_a_real_channel_task():
     assert decision.goal_id == goal.id  # the passed-in Decision is updated with what it produced
 
 
+def test_invest_verdict_bootstraps_the_dead_end_pipeline_by_default(monkeypatch):
+    # Opportunity Discovery V1 is off by default -- production behavior is
+    # unchanged until the founder explicitly enables it.
+    monkeypatch.delenv("ATLAS_OPPORTUNITY_DISCOVERY_V1", raising=False)
+    decision = _decision("invest", category="affiliate")
+
+    _, task = apply_decision(decision)
+
+    assert task.category == "affiliate_pipeline"
+
+
+def test_invest_verdict_bootstraps_affiliate_intelligence_when_v1_enabled(monkeypatch):
+    monkeypatch.setenv("ATLAS_OPPORTUNITY_DISCOVERY_V1", "1")
+    decision = _decision("invest", category="affiliate")
+
+    _, task = apply_decision(decision)
+
+    assert task.category == "affiliate_intelligence"
+
+
+def test_v1_flag_does_not_affect_categories_without_an_override(monkeypatch):
+    monkeypatch.setenv("ATLAS_OPPORTUNITY_DISCOVERY_V1", "1")
+    decision = _decision("invest", category="digital_product")
+
+    _, task = apply_decision(decision)
+
+    assert task.category == "revenue_digital_product"
+
+
 def test_propose_capability_verdict_creates_a_gated_create_asset_task():
     decision = _decision("propose_capability", category="youtube")
 

@@ -124,6 +124,15 @@ def test_source_corroboration_scoped_to_a_provider_ignores_category_general_find
     assert source_corroboration_score("affiliate", kb, provider="digistore24") is None
 
 
+def test_source_corroboration_scoped_to_a_subject_ignores_other_subjects(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(Finding(source="research", category="affiliate", description="a", evidence="https://x/1", subject="KetoDNA"))
+    kb.save_finding(Finding(source="research", category="affiliate", description="b", evidence="https://x/2", subject="BudgetWise"))
+
+    assert source_corroboration_score("affiliate", kb, subject="KetoDNA") == 1 / 3
+    assert source_corroboration_score("affiliate", kb, subject="BudgetWise") == 1 / 3
+
+
 # --- recency_score -----------------------------------------------------------
 
 
@@ -145,6 +154,14 @@ def test_recency_is_near_zero_for_an_old_finding(tmp_path):
     kb.save_finding(old_finding)
 
     assert recency_score("affiliate", kb) == 0.0
+
+
+def test_recency_scoped_to_a_subject_ignores_other_subjects(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(Finding(source="research", category="affiliate", description="a", subject="KetoDNA"))
+
+    assert recency_score("affiliate", kb, subject="KetoDNA") > 0.99
+    assert recency_score("affiliate", kb, subject="BudgetWise") is None
 
 
 # --- repeatability_score -----------------------------------------------------
