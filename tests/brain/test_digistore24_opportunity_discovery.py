@@ -1,10 +1,12 @@
 import pytest
 
 from atlas.brain.digistore24_opportunity_discovery import (
+    Digistore24SignalProvider,
     discover_and_rank_digistore24_opportunities,
     score_marketplace_entry,
 )
 from atlas.brain.knowledge import KnowledgeBase
+from atlas.integrations.base import Opportunity, OpportunityProvider
 from atlas.integrations.digistore24 import Digistore24APIError
 
 
@@ -132,3 +134,46 @@ def test_discover_skips_an_entry_whose_enrichment_call_fails_without_aborting_th
 def test_discover_skips_entries_with_no_real_id():
     provider = _FakeProvider(list_response={"result": "success", "entries": [{"headline": "no id field"}]})
     assert discover_and_rank_digistore24_opportunities(provider) == []
+
+
+def test_digistore24_signal_provider_satisfies_the_opportunity_provider_protocol():
+    assert isinstance(Digistore24SignalProvider(), OpportunityProvider)
+
+
+def test_digistore24_signal_provider_fetch_opportunities_returns_none_with_no_credential():
+    provider = Digistore24SignalProvider(_FakeProvider(list_response=None))
+    assert provider.fetch_opportunities() is None
+
+
+def test_digistore24_signal_provider_fetch_opportunities_returns_normalized_opportunities():
+    fake_provider = _FakeProvider(
+        list_response={"result": "success", "count": 1, "entries": [{"id": 1}]},
+        entry_responses={"1": {"result": "success", "data": {"headline": "Real product", "product_category": "health", "stats_affiliate_profit_sale": 10.0}}},
+    )
+    signal_provider = Digistore24SignalProvider(fake_provider)
+
+    opportunities = signal_provider.fetch_opportunities()
+
+    assert len(opportunities) == 1
+    opp = opportunities[0]
+    assert isinstance(opp, Opportunity)
+    assert opp.provider == "digistore24"
+    assert opp.external_id == "1"
+    assert opp.title == "Real product"
+    assert opp.category == "health"
+    assert opp.score == 10.0
+    assert opp.error is None
+
+
+def test_digistore24_signal_provider_fetch_opportunities_surfaces_a_per_entry_error():
+    fake_provider = _FakeProvider(
+        list_response={"result": "success", "count": 1, "entries": [{"id": 1}]},
+        entry_responses={"1": Digistore24APIError("permission denied")},
+    )
+    signal_provider = Digistore24SignalProvider(fake_provider)
+
+    opportunities = signal_provider.fetch_opportunities()
+
+    assert len(opportunities) == 1
+    assert opportunities[0].error == "permission denied"
+    assert opportunities[0].score is None

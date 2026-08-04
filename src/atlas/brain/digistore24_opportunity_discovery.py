@@ -31,6 +31,7 @@ this codebase.
 
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.models import Finding
+from atlas.integrations.base import Opportunity
 from atlas.integrations.digistore24 import Digistore24APIError, Digistore24Provider
 
 # Digistore24's own already-computed real per-sale/per-visitor affiliate
@@ -210,8 +211,11 @@ def _save_finding_for_result(provider_name: str, provider_category: str, result:
 
 
 class Digistore24SignalProvider:
-    """Adapts fetch_digistore24_opportunity_signals() into the
-    atlas.integrations.base.MarketSignalProvider Protocol — lives in
+    """Adapts fetch_digistore24_opportunity_signals() into both
+    atlas.integrations.base.MarketSignalProvider (fetch_signals(), the
+    original, broader-scoped Protocol) and OpportunityProvider
+    (fetch_opportunities(), the newer, opportunity-specific one used by
+    the multi-provider Opportunity Discovery Engine) — lives in
     atlas.brain (not atlas.integrations) because scoring
     (score_marketplace_entry()) is brain-layer business judgment, the
     same layering atlas.brain.provider_ranking already builds directly
@@ -228,3 +232,26 @@ class Digistore24SignalProvider:
 
     def fetch_signals(self) -> list[dict] | None:
         return fetch_digistore24_opportunity_signals(self._provider)
+
+    def fetch_opportunities(self) -> list[Opportunity] | None:
+        """Satisfies OpportunityProvider — converts this provider's raw,
+        already-scored discovery results into normalized Opportunity
+        objects. None propagates exactly as fetch_signals() already
+        does (no credential configured); a per-entry enrichment failure
+        becomes a real Opportunity with `error` set and `score=None`
+        rather than being dropped, so the engine can still report it."""
+        raw_results = fetch_digistore24_opportunity_signals(self._provider)
+        if raw_results is None:
+            return None
+        return [
+            Opportunity(
+                provider=self.name,
+                external_id=r["entry_id"],
+                title=(r["data"].get("headline") or r["entry_id"]) if r["data"] else r["entry_id"],
+                category=(r["data"].get("product_category") or self.category) if r["data"] else self.category,
+                score=r["score"],
+                raw=r["data"],
+                error=r["error"],
+            )
+            for r in raw_results
+        ]

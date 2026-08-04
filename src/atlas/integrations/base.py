@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 # Two genuinely different capability shapes, kept as separate, narrow
@@ -95,4 +96,57 @@ class MarketSignalProvider(Protocol):
         empty list standing in for "checked, found nothing" when nothing
         was actually checked — the same fail-closed rule
         CommerceProvider.fetch_recent_sales() already follows."""
+        ...
+
+
+@dataclass
+class Opportunity:
+    """A normalized, provider-agnostic revenue opportunity (2026-08-04,
+    Multi-Source Opportunity Discovery Engine V1) — the one shared shape
+    every OpportunityProvider returns, regardless of how different their
+    real underlying data is (Digistore24 marketplace stats vs. a future
+    provider's own real commission data). Mirrors Finding's "real
+    evidence, honestly incomplete" discipline: `score` is None (never a
+    fabricated 0.0) until a provider's own real data can compute one,
+    and `raw` always carries the real, unmodified source data a
+    provider's score was actually computed from, for traceability.
+    """
+
+    provider: str
+    external_id: str
+    title: str
+    category: str = ""
+    score: float | None = None
+    url: str = ""
+    raw: dict = field(default_factory=dict)
+    error: str | None = None
+
+
+@runtime_checkable
+class OpportunityProvider(Protocol):
+    """A real source of revenue opportunities for the Opportunity
+    Discovery Engine (atlas.brain.opportunity_discovery_engine) —
+    narrower and more specific than MarketSignalProvider above (which
+    stays reserved for its original, broader scope: search trends,
+    social trending topics, and other signals that aren't necessarily a
+    scored "opportunity" at all). One real class per real affiliate
+    network/marketplace, each normalizing its own real data into the
+    same Opportunity shape. Digistore24SignalProvider (atlas.brain.
+    digistore24_opportunity_discovery) is the first real implementation;
+    the Amazon Associates/AliExpress/CJ/Impact/ShareASale placeholders
+    (atlas.integrations.affiliate_provider_placeholders) are honest,
+    structural placeholders — reserved, zero real API calls, the same
+    "no fabrication" discipline ContentPublisher already established for
+    an unbuilt integration."""
+
+    name: str
+    category: str
+
+    def fetch_opportunities(self) -> list[Opportunity] | None:
+        """Real opportunities from this provider, normalized. None means
+        not available right now — no credential configured, or (for a
+        placeholder) no real implementation exists yet. Never an empty
+        list standing in for "checked, found nothing" when nothing was
+        actually checked — the same fail-closed rule every other
+        provider Protocol in this codebase already follows."""
         ...

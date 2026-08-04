@@ -109,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     brain_sub.add_parser(
         "discover-opportunities",
-        help="multi-provider Opportunity Discovery Engine -- runs every configured real signal provider (Digistore24 Marketplace today), keeps going if one returns zero or fails, ranks combined real results, records real Findings",
+        help="Multi-Source Opportunity Discovery Engine V1 -- runs every registered provider (Digistore24 real, Amazon Associates/AliExpress/CJ/Impact/ShareASale honest placeholders), keeps going if one returns zero or fails, ranks combined real results, records real Findings",
     )
 
     finding_parser = brain_sub.add_parser("finding", help="manage the Intelligence knowledge base")
@@ -738,9 +738,8 @@ def _cmd_brain(args: argparse.Namespace) -> None:
         else:
             print(f"{len(opportunities)} real opportunity/opportunities, ranked by real score across all providers:")
             for o in opportunities:
-                headline = o["data"].get("headline", "(no headline)") if o.get("data") else "(no data)"
-                score_str = f"{o['score']:.4f}" if o.get("score") is not None else "unscored"
-                print(f"  [{o['provider']}] id={o.get('id') or o.get('entry_id')}: score={score_str} — {headline}")
+                score_str = f"{o.score:.4f}" if o.score is not None else "unscored"
+                print(f"  [{o.provider}] id={o.external_id}: score={score_str} — {o.title}")
 
     elif cmd == "finding":
         if args.finding_command == "add":
