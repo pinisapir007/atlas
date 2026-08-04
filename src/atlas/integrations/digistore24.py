@@ -31,29 +31,26 @@ class Digistore24Provider:
        check, so a URL that merely contains the literal text "aff=" in its
        path is never mistaken for a real affiliate link.
 
-    The real API layer (2026-08-03): Digistore24's official developer docs
-    (dev.digistore24.com) are login-gated — every fetch attempt against
-    them returned HTTP 403 to this tool, so their exact current field-level
-    response shape could not be first-party verified before writing this.
-    What IS verified, independently, from the official docs' own page
-    titles/index (not a guess) is that the API is method-in-path (e.g.
-    `getUserInfo`, `getPurchase`, `listPurchases`, `getPurchaseTracking` —
-    real, named methods, not a REST resource style) and requires an API
-    key. `_BASE_URL` and `_API_KEY_HEADER` below are the best-attested
-    values from secondary sources (independently corroborated header name
-    `X-DS-API-KEY`) — still real, still worth building against, but
-    explicitly flagged provisional until one real authenticated call
-    confirms them. `verify_connection()` exists specifically to be that
-    one real, low-risk (read-only, no financial data) confirmation call —
-    run it first, before trusting `fetch_recent_sales()`. Any wrong
-    assumption here fails loud (`Digistore24APIError`), never silently.
+    The real API layer (2026-08-04, corrected after a real, live probe):
+    Digistore24's official developer docs (dev.digistore24.com) are still
+    login-gated to this tool, but the endpoint shape is now empirically
+    confirmed rather than assumed — a direct, unauthenticated HTTP request
+    to `https://www.digistore24.com/api/call/getUserInfo` returns a real
+    JSON envelope (`{"api_version": "1.2", ..., "result": "error",
+    "message": "No API key given.", "code": 2}`), and its response headers
+    explicitly list `X-DS-API-KEY` in `access-control-allow-headers` —
+    confirming both `_BASE_URL` and `_API_KEY_HEADER` directly against the
+    real server. The original `_BASE_URL` guess (`/api/v1/`) was wrong —
+    it 404s with an HTML body, which is exactly the failure this correction
+    fixes. `verify_connection()` remains the real, low-risk (read-only, no
+    financial data) call to confirm a real key against this corrected URL.
     """
 
     name = "digistore24"
     category = "affiliate"
     _HOST = "digistore24.com"
     _AFF_PARAM = "aff"
-    _BASE_URL = "https://www.digistore24.com/api/v1/"
+    _BASE_URL = "https://www.digistore24.com/api/call/"
     _API_KEY_HEADER = "X-DS-API-KEY"
     _API_KEY_ENV = "DIGISTORE24_API_KEY"
 
@@ -103,6 +100,15 @@ class Digistore24Provider:
             raise Digistore24APIError(f"Digistore24 {method} returned non-JSON body (HTTP {status}): {body[:500]}") from exc
         if not isinstance(parsed, dict):
             raise Digistore24APIError(f"Digistore24 {method} returned unexpected JSON shape (not an object): {parsed!r}")
+        # Confirmed by a real, live probe (2026-08-04): Digistore24 signals
+        # an API-level failure (e.g. a missing/invalid key) with HTTP 200
+        # and "result": "error" in the body, not an HTTP error status --
+        # the HTTPError branch above alone would miss this entirely and
+        # silently hand back an error envelope as if it were real data.
+        if parsed.get("result") == "error":
+            raise Digistore24APIError(
+                f"Digistore24 {method} returned an API-level error (code {parsed.get('code')}): {parsed.get('message')}"
+            )
         return parsed
 
     def verify_connection(self) -> dict | None:
@@ -138,3 +144,55 @@ class Digistore24Provider:
         if not isinstance(data, list):
             raise Digistore24APIError(f"Digistore24 listPurchases response had no real 'data' list: {response!r}")
         return data
+
+    def list_marketplace_entries(self, sort_by: str | None = None) -> dict | None:
+        """Real, read-only PROBE call to `listMarketplaceEntries`
+        (2026-08-04, Opportunity Discovery Mission #001) — returns the
+        API's complete raw response exactly as sent, unmodified and
+        unmapped, specifically so its real shape can be observed for the
+        first time against a real account. Deliberately not unwrapped
+        (unlike fetch_recent_sales()'s `data` list) because this
+        endpoint's real envelope for THIS account has never been seen —
+        fetch_recent_sales() only unwraps because a live probe already
+        confirmed its exact shape; this one hasn't been probed live yet.
+
+        The official OpenAPI spec describes this endpoint as retrieving
+        "marketplace data for a vendor, including statistical information
+        about their entries" — unconfirmed whether a real affiliate-only
+        account (no products of its own) gets real entries, an empty
+        list, or a permission error. `_call()`'s existing error-envelope
+        detection (`result == "error"`) already raises loudly on the
+        latter, so a restricted account surfaces as a clear
+        Digistore24APIError, never a silent empty result standing in for
+        "checked, found nothing." `sort_by` is the one parameter the
+        spec documents; no other filter (category, search term) is
+        documented to exist. None means no credential configured."""
+        if not os.environ.get(self._API_KEY_ENV):
+            return None
+        params = {"sort_by": sort_by} if sort_by else None
+        return self._call("listMarketplaceEntries", params)
+
+    def get_marketplace_entry(self, entry_id: str) -> dict | None:
+        """Real, read-only PROBE call to `getMarketplaceEntry` for one
+        specific, already-known entry_id — same raw, unmapped,
+        discovery-oriented discipline as list_marketplace_entries(): the
+        real response shape for this account has never been observed, so
+        this returns the complete raw response rather than guessing at a
+        `data` key to unwrap. None means no credential configured."""
+        if not os.environ.get(self._API_KEY_ENV):
+            return None
+        return self._call("getMarketplaceEntry", {"entry_id": entry_id})
+
+    def list_product_types(self) -> dict | None:
+        """Real, read-only PROBE call to `listProductTypes` — a general
+        product-type/category reference list. Its official OpenAPI
+        description is "Returns a list of available product types," with
+        no vendor/affiliate account-scoping language — unlike
+        listMarketplaceEntries, plausibly usable regardless of account
+        type, though (like every method here) that's only actually
+        confirmed once a real call succeeds against this account. Same
+        raw, unmapped, discovery-oriented return as the marketplace
+        probes. None means no credential configured."""
+        if not os.environ.get(self._API_KEY_ENV):
+            return None
+        return self._call("listProductTypes")

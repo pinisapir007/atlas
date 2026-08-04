@@ -85,7 +85,7 @@ def test_verify_connection_sends_the_real_auth_header_and_parses_the_response(mo
     assert result == {"result": "ok", "data": {"email": "founder@example.com"}}
     sent_request = urlopen.call_args[0][0]
     assert sent_request.get_header("X-ds-api-key") == "real-test-key"  # Request.get_header() capitalizes internally
-    assert sent_request.full_url == "https://www.digistore24.com/api/v1/getUserInfo"
+    assert sent_request.full_url == "https://www.digistore24.com/api/call/getUserInfo"
 
 
 def test_fetch_recent_sales_returns_the_real_data_list_unmodified(monkeypatch):
@@ -104,6 +104,47 @@ def test_fetch_recent_sales_raises_when_the_response_has_no_real_data_list(monke
             Digistore24Provider().fetch_recent_sales()
 
 
+def test_list_marketplace_entries_returns_none_when_no_api_key_configured(monkeypatch):
+    monkeypatch.delenv("DIGISTORE24_API_KEY", raising=False)
+    assert Digistore24Provider().list_marketplace_entries() is None
+
+
+def test_list_marketplace_entries_sends_the_real_request_and_returns_the_raw_response_unmapped(monkeypatch):
+    monkeypatch.setenv("DIGISTORE24_API_KEY", "real-test-key")
+    real_response = {"api_version": "1.010", "result": "success", "data": {"entries": [{"id": 123, "stats_stars": 0.83}]}}
+    with patch("urllib.request.urlopen", return_value=_FakeResponse(200, real_response)) as urlopen:
+        result = Digistore24Provider().list_marketplace_entries()
+
+    assert result == real_response  # returned exactly as sent -- not unwrapped, this is a discovery probe
+    sent_request = urlopen.call_args[0][0]
+    assert sent_request.full_url == "https://www.digistore24.com/api/call/listMarketplaceEntries"
+
+
+def test_list_marketplace_entries_sends_the_documented_sort_by_parameter(monkeypatch):
+    monkeypatch.setenv("DIGISTORE24_API_KEY", "real-test-key")
+    with patch("urllib.request.urlopen", return_value=_FakeResponse(200, {"result": "success", "data": {"entries": []}})) as urlopen:
+        Digistore24Provider().list_marketplace_entries(sort_by="stats_stars")
+
+    sent_request = urlopen.call_args[0][0]
+    assert "sort_by=stats_stars" in sent_request.full_url
+
+
+def test_get_marketplace_entry_returns_none_when_no_api_key_configured(monkeypatch):
+    monkeypatch.delenv("DIGISTORE24_API_KEY", raising=False)
+    assert Digistore24Provider().get_marketplace_entry("123") is None
+
+
+def test_get_marketplace_entry_sends_the_entry_id_and_returns_the_raw_response_unmapped(monkeypatch):
+    monkeypatch.setenv("DIGISTORE24_API_KEY", "real-test-key")
+    real_response = {"api_version": "1.010", "result": "success", "data": {"id": 123, "product_category": "health"}}
+    with patch("urllib.request.urlopen", return_value=_FakeResponse(200, real_response)) as urlopen:
+        result = Digistore24Provider().get_marketplace_entry("123")
+
+    assert result == real_response
+    sent_request = urlopen.call_args[0][0]
+    assert sent_request.full_url == "https://www.digistore24.com/api/call/getMarketplaceEntry?entry_id=123"
+
+
 def test_call_raises_clearly_on_http_error_naming_likely_causes(monkeypatch):
     monkeypatch.setenv("DIGISTORE24_API_KEY", "wrong-key")
     error = urllib.error.HTTPError(url="", code=401, msg="Unauthorized", hdrs=None, fp=BytesIO(b'{"error":"invalid api key"}'))
@@ -117,6 +158,18 @@ def test_call_raises_clearly_on_a_network_error(monkeypatch):
     with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("no route to host")):
         with pytest.raises(Digistore24APIError, match="network error"):
             Digistore24Provider().fetch_recent_sales()
+
+
+def test_call_raises_on_a_real_api_level_error_envelope_even_with_http_200(monkeypatch):
+    # Confirmed by a real, live probe (2026-08-04): Digistore24 signals an
+    # API-level failure with HTTP 200 and "result": "error" in the body,
+    # not an HTTP error status -- this must be caught explicitly or a real
+    # failure would silently read as a successful response.
+    monkeypatch.setenv("DIGISTORE24_API_KEY", "wrong-key")
+    error_body = {"api_version": "1.2", "result": "error", "message": "No API key given.", "code": 2}
+    with patch("urllib.request.urlopen", return_value=_FakeResponse(200, error_body)):
+        with pytest.raises(Digistore24APIError, match="No API key given"):
+            Digistore24Provider().verify_connection()
 
 
 def test_call_raises_clearly_on_malformed_json(monkeypatch):

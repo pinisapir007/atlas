@@ -27,6 +27,8 @@ from atlas.influencer.performance import record_metric
 from atlas.influencer.production import add_template, assemble_publishing_package, generate_campaign_content, templates_of_kind
 from atlas.influencer.ranking import rank_influencers
 from atlas.influencer.registry import InfluencerRegistry, add_platform_target, attach_asset
+from atlas.brain.digistore24_opportunity_discovery import discover_and_rank_digistore24_opportunities
+from atlas.brain.opportunity_discovery_engine import discover_opportunities
 from atlas.integrations.digistore24 import Digistore24Provider
 from atlas.orchestrator.orchestrator import advance_execution, start_execution
 
@@ -103,6 +105,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     opportunities_parser.add_argument(
         "--explain", action="store_true", help="show full evidence/confidence/ROI/risk breakdown for every ranked category"
+    )
+
+    brain_sub.add_parser(
+        "discover-opportunities",
+        help="multi-provider Opportunity Discovery Engine -- runs every configured real signal provider (Digistore24 Marketplace today), keeps going if one returns zero or fails, ranks combined real results, records real Findings",
     )
 
     finding_parser = brain_sub.add_parser("finding", help="manage the Intelligence knowledge base")
@@ -271,6 +278,14 @@ def build_parser() -> argparse.ArgumentParser:
     ds24_parser = affiliate_sub.add_parser("digistore24", help="real, live Digistore24 API calls (needs DIGISTORE24_API_KEY)")
     ds24_sub = ds24_parser.add_subparsers(dest="digistore24_command", required=True)
     ds24_sub.add_parser("verify", help="one real, low-risk getUserInfo call to confirm the API key/auth header actually work")
+    ds24_marketplace = ds24_sub.add_parser("marketplace", help="real, read-only listMarketplaceEntries probe -- prints the raw response to discover its real shape")
+    ds24_marketplace.add_argument("--sort-by", default=None, dest="sort_by", help="the one documented optional sort parameter")
+    ds24_marketplace_entry = ds24_sub.add_parser("marketplace-entry", help="real, read-only getMarketplaceEntry probe for one specific entry_id")
+    ds24_marketplace_entry.add_argument("entry_id", help="the real Digistore24 marketplace entry id to look up")
+    ds24_sub.add_parser(
+        "discover-opportunities",
+        help="ATLAS Opportunity Discovery Engine for Digistore24 -- lists real marketplace entries, enriches and scores each by real revenue-potential fields, records real Findings for the Decision Engine to rank",
+    )
     ds24_sub.add_parser("sales", help="real listPurchases call — prints the API's raw response, unmapped, for inspection")
 
     creative_parser = subparsers.add_parser("creative", help="Creative Agent brief drafts and real asset attachment")
@@ -711,6 +726,22 @@ def _cmd_brain(args: argparse.Namespace) -> None:
                             backed = "evidence-backed" if law.evidence_finding_ids else "hypothesis"
                             print(f"        success law ({backed}): {law.principle}")
 
+    elif cmd == "discover-opportunities":
+        engine_result = discover_opportunities(knowledge=brain.knowledge)
+        print("Provider status:")
+        for provider_name, status in engine_result["provider_status"].items():
+            status_str = f"error: {status['error']}" if status["error"] else f"{status['count']} real opportunity/opportunities"
+            print(f"  {provider_name}: {status_str}")
+        opportunities = engine_result["opportunities"]
+        if not opportunities:
+            print("0 real opportunities discovered across every configured provider.")
+        else:
+            print(f"{len(opportunities)} real opportunity/opportunities, ranked by real score across all providers:")
+            for o in opportunities:
+                headline = o["data"].get("headline", "(no headline)") if o.get("data") else "(no data)"
+                score_str = f"{o['score']:.4f}" if o.get("score") is not None else "unscored"
+                print(f"  [{o['provider']}] id={o.get('id') or o.get('entry_id')}: score={score_str} — {headline}")
+
     elif cmd == "finding":
         if args.finding_command == "add":
             finding = Finding(
@@ -1008,6 +1039,38 @@ def _cmd_affiliate(args: argparse.Namespace) -> None:
             else:
                 print(f"{len(sales)} real record(s) from listPurchases (raw, unmapped):")
                 print(json.dumps(sales, indent=2))
+        elif args.digistore24_command == "marketplace":
+            result = provider.list_marketplace_entries(sort_by=args.sort_by)
+            if result is None:
+                print("DIGISTORE24_API_KEY is not set — nothing to fetch")
+            else:
+                print("Real listMarketplaceEntries response (raw, unmapped -- inspect this to learn the real shape):")
+                print(json.dumps(result, indent=2))
+        elif args.digistore24_command == "marketplace-entry":
+            result = provider.get_marketplace_entry(args.entry_id)
+            if result is None:
+                print("DIGISTORE24_API_KEY is not set — nothing to fetch")
+            else:
+                print("Real getMarketplaceEntry response (raw, unmapped -- inspect this to learn the real shape):")
+                print(json.dumps(result, indent=2))
+        elif args.digistore24_command == "discover-opportunities":
+            brain = CEOBrain()
+            results = discover_and_rank_digistore24_opportunities(provider, brain.knowledge)
+            if not results:
+                print(
+                    "0 real opportunities discovered. If DIGISTORE24_API_KEY is set, this means "
+                    "listMarketplaceEntries returned zero real entries -- expected for an affiliate-only "
+                    "account per Digistore24's own API scoping (\"marketplace data for a vendor\"), not an error."
+                )
+            else:
+                print(f"{len(results)} real candidate(s), ranked by real revenue-potential score:")
+                for r in results:
+                    if r["error"]:
+                        print(f"  entry_id={r['entry_id']}: ERROR — {r['error']}")
+                    else:
+                        headline = r["data"].get("headline", "(no headline)")
+                        score_str = f"{r['score']:.4f}" if r["score"] is not None else "unscored (no real profit fields present)"
+                        print(f"  entry_id={r['entry_id']}: score={score_str} — {headline}")
 
 
 def _resolve_package_goal_id(package_id: str, purpose: str) -> str:
