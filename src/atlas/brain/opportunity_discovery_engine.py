@@ -23,6 +23,12 @@ scale — a real, stated limitation of cross-provider ranking, not
 hidden. Revisit once more than one real (non-placeholder) provider
 exists to see whether that assumption actually holds.
 
+Merge -> deduplicate -> rank (2026-08-05): every real result from every
+provider is aggregated, then _deduplicate() collapses exact
+(provider, external_id) repeats before ranking or Finding-saving — see
+discover_opportunities()'s own docstring for why cross-provider
+similarity matching (e.g. by title) is deliberately not attempted.
+
 Deliberately not wired through atlas.integrations.signal_registry.
 SIGNAL_PROVIDERS: that registry stays the reserved home for a future
 MarketSignalProvider (a broader concept — search trends, social
@@ -87,11 +93,23 @@ def discover_opportunities(
     providers instead of assets) — every caught failure is recorded,
     never silently dropped.
 
-    Returns {"opportunities": [...combined, ranked Opportunity
-    objects...], "provider_status": {provider_name: {"count": int,
-    "error": str | None}, ...}} — never raises on any single provider's
-    behalf, and defaults to every registered provider (Digistore24 plus
-    the five placeholders) when `providers` isn't given.
+    Merge -> deduplicate -> rank, in that order: every provider's real
+    results are aggregated first (isolated per-provider, see above),
+    then _deduplicate() collapses exact (provider, external_id) repeats
+    before anything is ranked or saved as a Finding — so a provider bug
+    or an accidentally-duplicated entry in `providers` can never inflate
+    the ranked list or double-record the same real opportunity.
+    `provider_status["count"]` still reports each provider's own raw
+    count, before dedup — an honest record of what that specific
+    provider actually returned, independent of what the merge step did
+    with it afterward.
+
+    Returns {"opportunities": [...merged, deduplicated, ranked
+    Opportunity objects...], "provider_status": {provider_name:
+    {"count": int, "error": str | None}, ...}} — never raises on any
+    single provider's behalf, and defaults to every registered provider
+    (Digistore24 plus the five placeholders) when `providers` isn't
+    given.
     """
     if providers is None:
         providers = _default_providers()
@@ -112,14 +130,39 @@ def discover_opportunities(
 
         real_opportunities = [o for o in opportunities if isinstance(o, Opportunity)]
         provider_status[provider.name] = {"count": len(real_opportunities), "error": None}
+        combined.extend(real_opportunities)
 
-        for opportunity in real_opportunities:
-            combined.append(opportunity)
-            if knowledge is not None and opportunity.raw and not opportunity.error:
-                _save_finding(opportunity, knowledge)
+    deduplicated = _deduplicate(combined)
 
-    combined.sort(key=lambda o: (o.score is not None, o.score or 0.0), reverse=True)
-    return {"opportunities": combined, "provider_status": provider_status}
+    for opportunity in deduplicated:
+        if knowledge is not None and opportunity.raw and not opportunity.error:
+            _save_finding(opportunity, knowledge)
+
+    deduplicated.sort(key=lambda o: (o.score is not None, o.score or 0.0), reverse=True)
+    return {"opportunities": deduplicated, "provider_status": provider_status}
+
+
+def _deduplicate(opportunities: list[Opportunity]) -> list[Opportunity]:
+    """Merges duplicates on the one honest, unambiguous identity signal
+    available: an exact match on (provider, external_id). Deliberately
+    never dedupes across providers by title/category similarity — two
+    different real affiliate networks share no common product-identity
+    standard, and fuzzy-matching them would risk silently conflating two
+    genuinely distinct real opportunities into one, exactly the kind of
+    fabricated-precision mistake this codebase's fail-closed rule exists
+    to prevent. Protects against a provider bug, or the same provider
+    appearing twice in a caller-supplied `providers` list, double-
+    counting the same real opportunity — first occurrence wins,
+    deterministic ordering."""
+    seen: set[tuple[str, str]] = set()
+    deduplicated: list[Opportunity] = []
+    for opportunity in opportunities:
+        key = (opportunity.provider, opportunity.external_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduplicated.append(opportunity)
+    return deduplicated
 
 
 def _save_finding(opportunity: Opportunity, knowledge: KnowledgeBase) -> None:

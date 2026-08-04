@@ -165,3 +165,77 @@ def test_default_providers_registers_digistore24_and_all_five_placeholders(monke
     for name, status in result["provider_status"].items():
         assert status["count"] == 0  # no real credential for any of them in this test run
     assert result["opportunities"] == []
+
+
+def test_exact_duplicate_provider_and_external_id_is_collapsed_to_one():
+    # e.g. a provider bug returning the same real entry twice.
+    provider = _FakeOpportunityProvider(
+        "provider_x",
+        opportunities=[
+            Opportunity(provider="provider_x", external_id="1", title="Real product", score=5.0, raw={"headline": "Real product"}),
+            Opportunity(provider="provider_x", external_id="1", title="Real product", score=5.0, raw={"headline": "Real product"}),
+        ],
+    )
+
+    result = discover_opportunities(providers=[provider])
+
+    assert len(result["opportunities"]) == 1
+    assert result["provider_status"]["provider_x"]["count"] == 2  # honest: the provider really did return 2 raw entries
+
+
+def test_first_occurrence_wins_on_a_real_duplicate():
+    provider = _FakeOpportunityProvider(
+        "provider_x",
+        opportunities=[
+            Opportunity(provider="provider_x", external_id="1", title="first seen", score=1.0, raw={"headline": "first seen"}),
+            Opportunity(provider="provider_x", external_id="1", title="second seen", score=9.0, raw={"headline": "second seen"}),
+        ],
+    )
+
+    result = discover_opportunities(providers=[provider])
+
+    assert result["opportunities"][0].title == "first seen"
+
+
+def test_the_same_external_id_from_two_different_providers_is_never_treated_as_a_duplicate():
+    # Deliberately not deduped -- no shared product-identity standard
+    # exists across real affiliate networks, so treating a matching
+    # external_id as the same opportunity across providers would be a
+    # real, unverified guess, not deduplication.
+    provider_a = _FakeOpportunityProvider("provider_a", opportunities=[Opportunity(provider="provider_a", external_id="1", title="from A", score=1.0, raw={"headline": "from A"})])
+    provider_b = _FakeOpportunityProvider("provider_b", opportunities=[Opportunity(provider="provider_b", external_id="1", title="from B", score=2.0, raw={"headline": "from B"})])
+
+    result = discover_opportunities(providers=[provider_a, provider_b])
+
+    assert len(result["opportunities"]) == 2
+
+
+def test_a_duplicate_only_saves_one_real_finding():
+    provider = _FakeOpportunityProvider(
+        "provider_x",
+        opportunities=[
+            Opportunity(provider="provider_x", external_id="1", title="Real product", category="health", score=5.0, raw={"headline": "Real product", "product_category": "health"}),
+            Opportunity(provider="provider_x", external_id="1", title="Real product", category="health", score=5.0, raw={"headline": "Real product", "product_category": "health"}),
+        ],
+    )
+    knowledge = KnowledgeBase(store=_FakeStore())
+
+    discover_opportunities(providers=[provider], knowledge=knowledge)
+
+    assert len(knowledge.findings()) == 1
+
+
+def test_a_provider_returning_invalid_entries_mixed_with_real_ones_does_not_corrupt_other_providers():
+    # Isolation, one level deeper than exception/None handling: even a
+    # provider that returns a malformed list (not every element a real
+    # Opportunity) can't corrupt the aggregate or affect another
+    # provider's real results -- only real Opportunity instances survive
+    # the isinstance filter.
+    malformed = _FakeOpportunityProvider("malformed_provider", opportunities=[{"not": "an Opportunity"}, "also not one", None])
+    working = _FakeOpportunityProvider("working_provider", opportunities=[Opportunity(provider="working_provider", external_id="1", title="real", score=1.0, raw={"headline": "real"})])
+
+    result = discover_opportunities(providers=[malformed, working])
+
+    assert result["provider_status"]["malformed_provider"]["count"] == 0
+    assert result["provider_status"]["working_provider"]["count"] == 1
+    assert len(result["opportunities"]) == 1
