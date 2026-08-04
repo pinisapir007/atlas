@@ -12,7 +12,7 @@ Two permanent layers:
 
 MAYA is Asset #1. New assets are not created automatically by the brain — where it identifies a capability gap (e.g. no marketing asset exists yet), it produces a `Proposal` for a human to act on, never a file it writes itself.
 
-Three companion documents, each owning a different layer (see each file's own maintenance note): `CLAUDE.md` (this file) owns *how the code is structured*; `docs/ATLAS_BUSINESS_BLUEPRINT.md` owns *what the business does and why*; `HANDOFF.md` owns *current state of the build*, for session-to-session continuation. All three can go stale — cross-check against the code (`python -m pytest -q`, actual file contents) before trusting a specific claim, especially after a gap between sessions.
+Four companion documents, each owning a different layer (see each file's own maintenance note): `CLAUDE.md` (this file) owns *how the code is structured*; `docs/ATLAS_BUSINESS_BLUEPRINT.md` owns *what the business does and why*; `HANDOFF.md` owns *current state of the build*, for session-to-session continuation; `docs/ATLAS_ARCHITECTURE_REFERENCE.md` owns *the engine layer's architecture, engine responsibilities, execution flow, and current implementation status* (Resource Discovery, Opportunity Discovery, Time Awareness, Decision Engine Integration, Business Execution Planning, and how they connect). All four can go stale — cross-check against the code (`python -m pytest -q`, actual file contents) before trusting a specific claim, especially after a gap between sessions.
 
 ## Commands
 
