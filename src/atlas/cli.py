@@ -33,6 +33,7 @@ from atlas.brain.resource_allowlist import ResourceAllowlist
 from atlas.brain.resource_discovery_engine import scan_resources
 from atlas.brain.resource_index import ResourceIndex
 from atlas.brain.decision_engine_integration import WAIT, TaskExecutionRequirements, evaluate_task_readiness
+from atlas.brain.business_execution_planning import build_execution_plan
 from atlas.integrations.digistore24 import Digistore24Provider
 from atlas.orchestrator.orchestrator import advance_execution, start_execution
 
@@ -547,6 +548,11 @@ def build_parser() -> argparse.ArgumentParser:
     decide_task.add_argument("--min-confidence", type=float, default=None, dest="min_opportunity_confidence", help="minimum real opportunity confidence score required")
     decide_task.add_argument("--deadline", default=None, dest="deadline_iso", help="a real ISO-8601 deadline this task must still have time before")
     decide_task.add_argument("--min-remaining-seconds", type=float, default=0.0, dest="minimum_remaining_seconds", help="minimum real seconds that must remain before --deadline")
+
+    decide_plan = decide_sub.add_parser("plan", help="Business Execution Planning V1 -- a real, read-only plan for a category: selected opportunity, required resources, confidence, risks, success criteria. Never executes anything.")
+    decide_plan.add_argument("category", help="the real category to plan for, e.g. affiliate")
+    decide_plan.add_argument("--require-resource", action="append", default=[], dest="required_resource_paths", help="a real approved resource path this plan requires (repeatable)")
+    decide_plan.add_argument("--estimated-duration-seconds", type=float, default=None, dest="estimated_duration_seconds", help="a real, founder-supplied duration estimate -- omit to leave estimated_execution_time honestly unset")
 
     return parser
 
@@ -1336,6 +1342,38 @@ def _cmd_decide(args: argparse.Namespace) -> None:
             print("Blocking reason(s):")
             for reason in readiness.reasons:
                 print(f"  - {reason}")
+
+    elif cmd == "plan":
+        plan = build_execution_plan(
+            args.category,
+            brain.knowledge,
+            brain.memory,
+            brain.kpis,
+            required_resource_paths=args.required_resource_paths,
+            estimated_duration_seconds=args.estimated_duration_seconds,
+        )
+        print(f"Business Execution Plan for '{plan.category}' -- can_execute={plan.can_execute}")
+        print(f"  Decision Engine verdict: {plan.verdict}")
+        print(f"  Confidence score: {plan.confidence_score if plan.confidence_score is not None else 'unscored'}")
+        if plan.selected_opportunity:
+            opp = plan.selected_opportunity
+            print(f"  Selected opportunity: {opp['subject']} (score={opp['score']}, market={opp['recommended_market'] or 'unspecified'})")
+        else:
+            print("  Selected opportunity: none ranked yet")
+        print(f"  Required resources: {plan.required_resources}")
+        print(f"  Estimated execution time: {plan.estimated_execution_time}")
+        print(f"  Task dependency order: {' -> '.join(plan.task_dependency_order)}")
+        print(f"  Expected outcome: {plan.expected_outcome}")
+        print("  Risk assessment:")
+        for risk in plan.risk_assessment:
+            print(f"    - {risk}")
+        print("  Success criteria:")
+        for criterion in plan.success_criteria:
+            print(f"    - {criterion}")
+        if not plan.can_execute:
+            print("  Blocking reason(s):")
+            for reason in plan.blocking_reasons:
+                print(f"    - {reason}")
 
 
 def _cmd_campaign(args: argparse.Namespace) -> None:
