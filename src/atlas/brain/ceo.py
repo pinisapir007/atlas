@@ -20,12 +20,14 @@ from atlas.brain.ledger import Ledger
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Goal, Task, now
 from atlas.brain.monitor import Monitor
+from atlas.brain.opportunity_discovery_advance import advance_opportunity_discovery
 from atlas.brain.pipeline_advance import advance_recruitment_pipeline
 from atlas.brain.planner import Planner, SimplePlanner
 from atlas.brain.prioritizer import Prioritizer, SimplePrioritizer
 from atlas.brain.reporter import Reporter
 from atlas.brain.risk import RiskPolicy
 from atlas.brain.strategist import SimpleStrategist, Strategist
+from atlas.brand.registry import BrandRegistry
 from atlas.campaign.registry import CampaignRegistry
 from atlas.core.registry import Registry
 from atlas.influencer.registry import InfluencerRegistry
@@ -59,6 +61,7 @@ class CEOBrain:
         ledger: Ledger | None = None,
         campaigns: CampaignRegistry | None = None,
         influencers: InfluencerRegistry | None = None,
+        brands: BrandRegistry | None = None,
         execution_plans: ExecutionPlanRegistry | None = None,
         affiliate_store: AffiliateStore | None = None,
     ):
@@ -82,6 +85,7 @@ class CEOBrain:
         self.affiliate_store = affiliate_store if affiliate_store is not None else AffiliateStore(AFFILIATE_INTELLIGENCE_STORE_PATH)
         self.campaigns = campaigns if campaigns is not None else CampaignRegistry()
         self.influencers = influencers if influencers is not None else InfluencerRegistry()
+        self.brands = brands if brands is not None else BrandRegistry()
         self.execution_plans = execution_plans if execution_plans is not None else ExecutionPlanRegistry()
         self.kpis = KPIRegistry(self.memory)
         self.delegator = Delegator(self.memory)
@@ -134,11 +138,18 @@ class CEOBrain:
         for affiliate_task in advance_affiliate_pipeline(self.memory.tasks(), self.registry, self.memory, self.kpis):
             self.memory.save_task(affiliate_task)
 
+        # Off by default (see feature_flags.opportunity_discovery_v1_enabled)
+        # -- seeds real, evidence-ranked AffiliateOpportunity records so the
+        # very next call below can request founder choice on them in the
+        # same tick, exactly like a founder-manual intake would.
+        advance_opportunity_discovery(self.memory, self.knowledge, self.affiliate_store)
+
         for intelligence_task in advance_affiliate_intelligence(self.memory.tasks(), self.registry, self.memory, self.kpis):
             self.memory.save_task(intelligence_task)
 
         advance_decision_driven_campaigns(
-            self.memory, self.knowledge, self.kpis, self.influencers, self.campaigns, self.execution_plans, self.affiliate_store
+            self.memory, self.knowledge, self.kpis, self.influencers, self.campaigns, self.execution_plans,
+            self.affiliate_store, self.brands,
         )
 
         # advance_decision_driven_campaigns() runs first (above) so a goal
@@ -218,7 +229,9 @@ class CEOBrain:
             self.delegator.delegate(task, self.registry, evidence=[task.description], baseline_metrics=baseline)
             self.memory.save_task(task)
 
-        return self.reporter.summarize(period, self.memory, self.kpis)
+        return self.reporter.summarize(
+            period, self.memory, self.kpis, self.knowledge, self.campaigns, self.influencers, self.brands, self.execution_plans
+        )
 
     def _evaluate_applied_proposals(self) -> None:
         for proposal in self.memory.proposals():
