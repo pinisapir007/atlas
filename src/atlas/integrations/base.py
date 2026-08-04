@@ -150,3 +150,53 @@ class OpportunityProvider(Protocol):
         actually checked — the same fail-closed rule every other
         provider Protocol in this codebase already follows."""
         ...
+
+
+@dataclass
+class Resource:
+    """A normalized, provider-agnostic discovered resource (2026-08-04,
+    Resource Discovery Engine V1) — metadata only, never content.
+    `content_hash` exists for change/duplicate detection, not retrieval:
+    computing it may require transiently reading a file's real bytes,
+    but nothing beyond the digest is ever kept. None for a folder
+    (nothing meaningful to hash) or a file whose hash couldn't be
+    computed (recorded via `error`, never silently dropped)."""
+
+    provider: str
+    path: str
+    resource_type: str  # "file" | "folder"
+    size_bytes: int | None = None
+    modified_at: str | None = None
+    content_hash: str | None = None
+    raw: dict = field(default_factory=dict)
+    error: str | None = None
+
+
+@runtime_checkable
+class ResourceProvider(Protocol):
+    """A real source of discoverable resources for the Resource
+    Discovery Engine (atlas.brain.resource_discovery_engine) — one real
+    class per real storage location, each normalizing its own real
+    listing into the same Resource shape. LocalFolderProvider
+    (atlas.integrations.local_folder_provider) is the first real
+    implementation, and the only one permitted to touch anything without
+    an explicit, durable, founder-approved allow-list behind it — see
+    that module's own docstring for the full safety discipline. The
+    Google Drive/OneDrive/Dropbox/NAS/Gmail placeholders
+    (atlas.integrations.resource_provider_placeholders) are honest,
+    structural placeholders — reserved, zero real API/network calls, the
+    same "no fabrication" discipline ContentPublisher/OpportunityProvider
+    already established for an unbuilt integration.
+    """
+
+    name: str
+
+    def fetch_resources(self) -> list[Resource] | None:
+        """Real resources from this provider, normalized. None means not
+        available right now — no approved location configured (for
+        LocalFolderProvider: an empty allow-list, never a default/implied
+        one), or (for a placeholder) no real implementation exists yet.
+        Never an empty list standing in for "checked, found nothing" when
+        nothing was actually checked — the same fail-closed rule every
+        other provider Protocol in this codebase already follows."""
+        ...

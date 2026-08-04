@@ -29,6 +29,8 @@ from atlas.influencer.ranking import rank_influencers
 from atlas.influencer.registry import InfluencerRegistry, add_platform_target, attach_asset
 from atlas.brain.digistore24_opportunity_discovery import discover_and_rank_digistore24_opportunities
 from atlas.brain.opportunity_discovery_engine import discover_opportunities
+from atlas.brain.resource_allowlist import ResourceAllowlist
+from atlas.brain.resource_discovery_engine import scan_resources
 from atlas.integrations.digistore24 import Digistore24Provider
 from atlas.orchestrator.orchestrator import advance_execution, start_execution
 
@@ -517,6 +519,19 @@ def build_parser() -> argparse.ArgumentParser:
     portfolio_sub = portfolio_parser.add_subparsers(dest="portfolio_command", required=True)
     portfolio_sub.add_parser("list", help="list every real asset across every type, ranked by lifetime value")
 
+    resources_parser = subparsers.add_parser("resources", help="Resource Discovery Engine V1: real, founder-approved local folders (and future Drive/OneDrive/Dropbox/NAS/Gmail sources), metadata only, never scanned without explicit approval")
+    resources_sub = resources_parser.add_subparsers(dest="resources_command", required=True)
+
+    resources_approve = resources_sub.add_parser("approve-folder", help="explicitly approve a real local folder for scanning -- required before any scan will touch it")
+    resources_approve.add_argument("path", help="the real folder path to approve")
+
+    resources_revoke = resources_sub.add_parser("revoke-folder", help="revoke a previously approved folder -- the engine will refuse to scan it again")
+    resources_revoke.add_argument("path", help="the real folder path to revoke")
+
+    resources_sub.add_parser("list-approved", help="list every currently approved folder")
+
+    resources_sub.add_parser("scan", help="run the Resource Discovery Engine across every registered provider (approved local folders + honest placeholders), report new/modified/deleted/duplicate resources")
+
     return parser
 
 
@@ -563,6 +578,8 @@ def main(argv: list[str] | None = None) -> int:
             _cmd_campaign(args)
         elif args.command == "portfolio":
             _cmd_portfolio(args)
+        elif args.command == "resources":
+            _cmd_resources(args)
         else:
             _cmd_verb(args.command, args.asset)
     except (KeyError, UnsupportedVerb, ValueError) as exc:
@@ -1225,6 +1242,43 @@ def _cmd_portfolio(args: argparse.Namespace) -> None:
                 f"{entry.asset_id}\t{entry.asset_type}\t{entry.name}\tmarket={entry.market or '(unspecified)'}\t"
                 f"business_models={','.join(entry.business_models) or '(none)'}\tlifetime_value={ltv}"
             )
+
+
+def _cmd_resources(args: argparse.Namespace) -> None:
+    cmd = args.resources_command
+    allowlist = ResourceAllowlist()
+
+    if cmd == "approve-folder":
+        allowlist.approve_folder(args.path)
+        print(f"approved: {args.path}")
+    elif cmd == "revoke-folder":
+        allowlist.revoke_folder(args.path)
+        print(f"revoked: {args.path}")
+    elif cmd == "list-approved":
+        folders = allowlist.approved_folders()
+        if not folders:
+            print("0 approved folders -- 'atlas resources scan' will scan nothing until at least one is approved.")
+        else:
+            for folder in folders:
+                print(folder)
+    elif cmd == "scan":
+        result = scan_resources(allowlist)
+        print("Provider status:")
+        for provider_name, status in result["provider_status"].items():
+            status_str = f"error: {status['error']}" if status["error"] else f"{status['count']} real resource(s)"
+            print(f"  {provider_name}: {status_str}")
+        print(f"Total resources: {len(result['resources'])}")
+        print(f"New: {len(result['new'])}\tModified: {len(result['modified'])}\tDeleted: {len(result['deleted'])}")
+        for path in result["new"]:
+            print(f"  + new: {path}")
+        for path in result["modified"]:
+            print(f"  ~ modified: {path}")
+        for path in result["deleted"]:
+            print(f"  - deleted: {path}")
+        if result["duplicates"]:
+            print(f"Duplicate groups: {len(result['duplicates'])}")
+            for group in result["duplicates"]:
+                print(f"  duplicate: {group}")
 
 
 def _cmd_campaign(args: argparse.Namespace) -> None:
