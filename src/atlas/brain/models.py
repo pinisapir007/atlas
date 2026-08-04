@@ -94,14 +94,75 @@ class Finding:
     specifically (e.g. "Digistore24 has X real commission structure"),
     scoped one level deeper than category — this is what makes it possible
     to rank *which platform* within a category, not just whether the
-    category is worth pursuing at all."""
+    category is worth pursuing at all.
+
+    subject and market (added 2026-08-03, Opportunity Discovery V1) are two
+    more optional, orthogonal scoping dimensions, the same shape as
+    provider: subject names the specific candidate product/topic this
+    evidence is about ("" for a category-general finding) — what makes it
+    possible to rank *which specific opportunity* within a category, one
+    level deeper than provider (see atlas.brain.opportunity_ranking).
+    market names the country/language this evidence applies to when known
+    ("" when general) — feeds the recommended-market signal on a ranked
+    opportunity. Neither is inferred; both are "" unless the source of the
+    finding actually states them."""
 
     source: str
     category: str
     description: str
     evidence: str = ""
     provider: str = ""
+    subject: str = ""
+    market: str = ""
     id: str = field(default_factory=lambda: new_id("finding"))
+    created_at: str = field(default_factory=now)
+
+
+@dataclass
+class SuccessLaw:
+    """A generalized, reusable business principle ATLAS has extracted
+    from real external evidence — never a literal implementation to
+    copy. Founder's explicit standing rule (2026-08-03): "Every external
+    source (video, article, course, creator, company, or successful
+    business) should be treated as intelligence, never as a blueprint...
+    ATLAS never copies implementations. ATLAS extracts reusable business
+    intelligence."
+
+    This is the real, buildable half of that directive: a durable,
+    evidence-linked place to RECORD a Success Law once one is identified,
+    so it becomes traceable business intelligence instead of living only
+    in a conversation. It is deliberately NOT an automated extraction
+    tool — no real content-analysis/LLM integration exists anywhere in
+    this codebase to read a video/article and derive a principle from it
+    on its own; that would be its own separate, explicit, credentialed
+    decision, the same class this codebase has deferred everywhere else
+    (ContentPublisher, MarketSignalProvider). Today a SuccessLaw is
+    recorded by the founder (or, once one exists, a future real analysis
+    tool) — this module just makes sure it's captured honestly and stays
+    traceable to real evidence.
+
+    `principle` must always be phrased as a transferable rule (e.g.
+    "first-person testimonial framing outperforms feature-listing for
+    consumer health products"), never as "do what {source} did" — the
+    structural separation from `source_description` (what was actually
+    observed) is what keeps a Success Law from silently becoming a
+    blueprint to copy. `evidence_finding_ids` cites real Findings (each
+    already carrying its own real `evidence` URL) this principle is
+    actually grounded in — a law with none is an untested hypothesis, not
+    a validated one; check `bool(law.evidence_finding_ids)` at any call
+    site that needs to distinguish the two, rather than trusting a
+    separately-stored status field that could drift out of sync.
+    `applicable_business_models` is the founder's own explicit
+    generalization test ("how can these principles be generalized across
+    all business models") — an open list of categories, the same
+    convention as `Finding.category`, not fixed to whichever single
+    business ATLAS happened to observe it in."""
+
+    principle: str
+    source_description: str
+    evidence_finding_ids: list[str] = field(default_factory=list)
+    applicable_business_models: list[str] = field(default_factory=list)
+    id: str = field(default_factory=lambda: new_id("law"))
     created_at: str = field(default_factory=now)
 
 
