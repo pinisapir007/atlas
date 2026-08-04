@@ -1,13 +1,22 @@
+from pathlib import Path
+
 from atlas.brain.cashflow import profit
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Task, now
 from atlas.campaign.registry import CampaignRegistry, refresh_confidence
-from atlas.influencer.production import generate_content_package
+from atlas.influencer.production import generate_campaign_creative_brief, generate_content_package, generate_landing_page_html
 from atlas.influencer.registry import InfluencerRegistry
 from atlas.orchestrator.models import ExecutionPlan, ExecutionStep
 from atlas.orchestrator.registry import ExecutionPlanRegistry
+
+# Where automatically-prepared landing pages land — same ".atlas/<name>"
+# convention every registry's default store path already uses (see
+# BrainMemory/CampaignRegistry/InfluencerRegistry), just a directory of
+# real files instead of one JSON store, since a landing page is a real
+# artifact meant to be deployed, not a record to query.
+LANDING_PAGE_DIR = Path(".atlas/landing_pages")
 
 # Publish-readiness (2026-08-03, founder-defined bar): "ready" means a
 # campaign has everything required to actually be published, not just
@@ -79,6 +88,7 @@ def advance_execution(
     memory: BrainMemory,
     kpis: KPIRegistry,
     knowledge: KnowledgeBase,
+    landing_page_dir: Path = LANDING_PAGE_DIR,
 ) -> ExecutionPlan:
     """The Orchestrator's core coordination loop — "track execution state
     and failures" and "resume automatically when blocked tasks become
@@ -125,7 +135,7 @@ def advance_execution(
         if not all(by_id[dep].status == "done" for dep in step.depends_on):
             continue  # still waiting — leave as pending, re-checked next call
 
-        _perform_step(step, plan, campaign_registry, influencer_registry, memory, kpis, knowledge)
+        _perform_step(step, plan, campaign_registry, influencer_registry, memory, kpis, knowledge, landing_page_dir)
         changed = True
 
     if changed:
@@ -150,6 +160,7 @@ def _perform_step(
     memory: BrainMemory,
     kpis: KPIRegistry,
     knowledge: KnowledgeBase,
+    landing_page_dir: Path = LANDING_PAGE_DIR,
 ) -> None:
     campaign = campaign_registry.get_campaign(plan.campaign_id)
     step.updated_at = now()
@@ -157,7 +168,7 @@ def _perform_step(
     if step.kind == "verify_readiness":
         _verify_readiness(step, campaign, influencer_registry, memory)
     elif step.kind == "produce_content":
-        _produce_content(step, campaign, campaign_registry, influencer_registry)
+        _produce_content(step, campaign, campaign_registry, influencer_registry, landing_page_dir)
     elif step.kind == "request_founder_review":
         _dispatch_founder_review(step, campaign, memory)
     elif step.kind == "check_measurement":
@@ -186,7 +197,13 @@ def _verify_readiness(step: ExecutionStep, campaign, influencer_registry: Influe
     step.status, step.result = "done", {"verified_influencers": campaign.influencer_ids, "goal_id": campaign.goal_id}
 
 
-def _produce_content(step: ExecutionStep, campaign, campaign_registry: CampaignRegistry, influencer_registry: InfluencerRegistry) -> None:
+def _produce_content(
+    step: ExecutionStep,
+    campaign,
+    campaign_registry: CampaignRegistry,
+    influencer_registry: InfluencerRegistry,
+    landing_page_dir: Path = LANDING_PAGE_DIR,
+) -> None:
     """Publish-ready, not just media-ready: every requirement the founder
     named — real media, title, description, captions, hashtags (when
     applicable), a real destination URL, product/offer assignment, CTA,
@@ -221,6 +238,20 @@ def _produce_content(step: ExecutionStep, campaign, campaign_registry: CampaignR
         step.result = {"reason": "not publish-ready: " + "; ".join(missing_requirements), "missing_kinds": package.missing_kinds}
         return
 
+    # "Prepare complete campaign packages" (founder's daily operational
+    # workflow, step 6, 2026-08-03) — now automatic, not just available on
+    # demand via `atlas campaign package`: the moment a step reaches
+    # publish-ready, ATLAS writes the real landing page artifact and
+    # attaches the real creative brief right here, reusing the exact same
+    # deterministic, already-tested functions the CLI command calls (no
+    # new business logic). Every requirement above is already verified, so
+    # generate_landing_page_html() cannot raise here.
+    landing_page_dir.mkdir(parents=True, exist_ok=True)
+    landing_page_path = landing_page_dir / f"{campaign.id}_{step.influencer_id}.html"
+    landing_page_path.write_text(generate_landing_page_html(campaign, package), encoding="utf-8")
+    platform = influencer.platform_targets[0].platform if influencer.platform_targets else ""
+    creative_brief = generate_campaign_creative_brief(campaign, package, platform=platform)
+
     step.status = "done"
     step.result = {
         "hooks": len(package.hooks),
@@ -232,6 +263,8 @@ def _produce_content(step: ExecutionStep, campaign, campaign_registry: CampaignR
         "real_assets": len(influencer.asset_library),
         "destination_url": campaign.destination_url,
         "missing_kinds": package.missing_kinds,
+        "landing_page_path": str(landing_page_path),
+        "creative_brief_shots": len(creative_brief["shots"]),
     }
 
 
@@ -267,6 +300,7 @@ def advance_all_campaign_executions(
     memory: BrainMemory,
     kpis: KPIRegistry,
     knowledge: KnowledgeBase,
+    landing_page_dir: Path = LANDING_PAGE_DIR,
 ) -> None:
     """CEOBrain.tick()'s bridge into the Execution Orchestrator — the same
     shape every pipeline-advance bridge already has (advance_affiliate_
@@ -275,4 +309,4 @@ def advance_all_campaign_executions(
     "resume automatically when blocked tasks become available.\""""
     for plan in plan_registry.plans():
         if plan.status == "in_progress":
-            advance_execution(plan.id, plan_registry, campaign_registry, influencer_registry, memory, kpis, knowledge)
+            advance_execution(plan.id, plan_registry, campaign_registry, influencer_registry, memory, kpis, knowledge, landing_page_dir)

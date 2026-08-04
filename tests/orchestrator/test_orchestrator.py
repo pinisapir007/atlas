@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from atlas.brain.knowledge import KnowledgeBase
@@ -31,6 +33,7 @@ class _World:
         self.influencers = InfluencerRegistry(tmp_path / "influencers.json")
         self.campaigns = CampaignRegistry(tmp_path / "campaigns.json")
         self.plans = ExecutionPlanRegistry(tmp_path / "execution_plans.json")
+        self.landing_page_dir = tmp_path / "landing_pages"
 
     def new_influencer(self, name="Mira") -> DigitalInfluencer:
         influencer = DigitalInfluencer(identity=IdentityProfile(name=name), categories=["affiliate"])
@@ -58,7 +61,9 @@ class _World:
         add_platform_target(influencer_id, "YouTube", "@handle", self.influencers)
 
     def advance(self, plan_id):
-        return advance_execution(plan_id, self.plans, self.campaigns, self.influencers, self.memory, self.kpis, self.knowledge)
+        return advance_execution(
+            plan_id, self.plans, self.campaigns, self.influencers, self.memory, self.kpis, self.knowledge, self.landing_page_dir
+        )
 
 
 @pytest.fixture
@@ -202,6 +207,17 @@ def test_produce_content_succeeds_once_publish_ready(world):
     assert produce.result["titles"] == 1
     assert produce.result["descriptions"] == 1
     assert produce.result["real_assets"] == 1
+
+    # "Prepare complete campaign packages" (founder's daily operational
+    # workflow, step 6, 2026-08-03) is now automatic: reaching "done" here
+    # means a real landing page file and creative brief were produced,
+    # not just counted.
+    assert produce.result["creative_brief_shots"] == 4
+    landing_page_path = Path(produce.result["landing_page_path"])
+    assert landing_page_path.is_relative_to(world.landing_page_dir)
+    html = landing_page_path.read_text(encoding="utf-8")
+    assert "<html" in html
+    assert "https://example.com/track/real" in html
 
 
 def test_produce_content_blocks_on_missing_destination_url_even_with_full_templates(world):
@@ -388,7 +404,9 @@ def test_advance_all_campaign_executions_advances_every_in_progress_plan(world):
     plan_a = start_execution(campaign_a.id, world.campaigns, world.plans)
     plan_b = start_execution(campaign_b.id, world.campaigns, world.plans)
 
-    advance_all_campaign_executions(world.plans, world.campaigns, world.influencers, world.memory, world.kpis, world.knowledge)
+    advance_all_campaign_executions(
+        world.plans, world.campaigns, world.influencers, world.memory, world.kpis, world.knowledge, world.landing_page_dir
+    )
 
     for plan_id in (plan_a.id, plan_b.id):
         steps = world.plans.get_plan(plan_id).steps

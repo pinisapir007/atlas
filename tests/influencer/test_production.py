@@ -5,7 +5,15 @@ from atlas.brain.kpi import KPIRegistry
 from atlas.brain.memory import BrainMemory
 from atlas.campaign.registry import CampaignRegistry, create_campaign
 from atlas.influencer.models import DigitalInfluencer, IdentityProfile
-from atlas.influencer.production import add_template, generate_campaign_content, generate_content_package, templates_of_kind
+from atlas.influencer.production import (
+    add_template,
+    assemble_publishing_package,
+    generate_campaign_content,
+    generate_campaign_creative_brief,
+    generate_content_package,
+    generate_landing_page_html,
+    templates_of_kind,
+)
 from atlas.influencer.registry import InfluencerRegistry
 
 
@@ -23,7 +31,7 @@ def _new_influencer(registry, name="Mira") -> DigitalInfluencer:
     return influencer
 
 
-def _new_campaign(tmp_path, influencer_ids, product_offer="KetoDNA"):
+def _new_campaign(tmp_path, influencer_ids, product_offer="KetoDNA", destination_url=""):
     return create_campaign(
         business_objective="grow affiliate revenue",
         category="affiliate",
@@ -34,6 +42,7 @@ def _new_campaign(tmp_path, influencer_ids, product_offer="KetoDNA"):
         memory=BrainMemory(tmp_path / "brain.json"),
         kpis=KPIRegistry(BrainMemory(tmp_path / "brain.json")),
         registry=_campaign_registry(tmp_path),
+        destination_url=destination_url,
     )
 
 
@@ -163,3 +172,122 @@ def test_generate_campaign_content_is_empty_for_a_campaign_with_no_influencers(t
     packages = generate_campaign_content(campaign.id, _campaign_registry(tmp_path), _influencer_registry(tmp_path))
 
     assert packages == []
+
+
+# --- generate_landing_page_html --------------------------------------------
+
+
+def _publish_ready_package(tmp_path, destination_url="https://real.example.com/track/aff123"):
+    influencer_registry = _influencer_registry(tmp_path)
+    influencer = _new_influencer(influencer_registry)
+    add_template(influencer.id, "title", "t1", "Why {product_name} Actually Works", influencer_registry)
+    add_template(influencer.id, "description", "d1", "A real, honest look at {product_name}.", influencer_registry)
+    add_template(influencer.id, "hook", "h1", "I almost scrolled past this...", influencer_registry)
+    add_template(influencer.id, "cta", "c1", "See why I switched — link in bio.", influencer_registry)
+    campaign = _new_campaign(tmp_path, [influencer.id], destination_url=destination_url)
+    campaign_registry = _campaign_registry(tmp_path)
+    package = generate_content_package(campaign.id, influencer.id, campaign_registry, influencer_registry)
+    return campaign, package, influencer, campaign_registry, influencer_registry
+
+
+def test_generate_landing_page_html_produces_real_valid_looking_html(tmp_path):
+    campaign, package, *_ = _publish_ready_package(tmp_path)
+
+    page = generate_landing_page_html(campaign, package)
+
+    assert page.startswith("<!doctype html>")
+    assert "Why KetoDNA Actually Works" in page
+    assert "A real, honest look at KetoDNA." in page
+    assert "See why I switched" in page
+    assert 'href="https://real.example.com/track/aff123"' in page
+
+
+def test_generate_landing_page_html_escapes_real_copy_to_avoid_breaking_markup(tmp_path):
+    influencer_registry = _influencer_registry(tmp_path)
+    influencer = _new_influencer(influencer_registry)
+    add_template(influencer.id, "title", "t1", "<script>alert(1)</script>", influencer_registry)
+    add_template(influencer.id, "description", "d1", "d", influencer_registry)
+    add_template(influencer.id, "hook", "h1", "h", influencer_registry)
+    add_template(influencer.id, "cta", "c1", "c", influencer_registry)
+    campaign = _new_campaign(tmp_path, [influencer.id], destination_url="https://x/1")
+    package = generate_content_package(campaign.id, influencer.id, _campaign_registry(tmp_path), influencer_registry)
+
+    page = generate_landing_page_html(campaign, package)
+
+    assert "<script>alert(1)</script>" not in page
+    assert "&lt;script&gt;" in page
+
+
+def test_generate_landing_page_html_raises_without_real_essential_copy(tmp_path):
+    influencer_registry = _influencer_registry(tmp_path)
+    influencer = _new_influencer(influencer_registry)
+    campaign = _new_campaign(tmp_path, [influencer.id], destination_url="https://x/1")
+    package = generate_content_package(campaign.id, influencer.id, _campaign_registry(tmp_path), influencer_registry)
+
+    with pytest.raises(ValueError, match="title/description/cta"):
+        generate_landing_page_html(campaign, package)
+
+
+def test_generate_landing_page_html_raises_without_a_real_destination_url(tmp_path):
+    campaign, package, *_ = _publish_ready_package(tmp_path, destination_url="")
+
+    with pytest.raises(ValueError, match="destination_url"):
+        generate_landing_page_html(campaign, package)
+
+
+# --- generate_campaign_creative_brief --------------------------------------
+
+
+def test_generate_campaign_creative_brief_uses_real_copy(tmp_path):
+    campaign, package, *_ = _publish_ready_package(tmp_path)
+
+    brief = generate_campaign_creative_brief(campaign, package, platform="TikTok")
+
+    assert brief["platform"] == "TikTok"
+    assert brief["cta_text"] == "See why I switched — link in bio."
+    assert brief["voiceover_or_caption"] == "I almost scrolled past this..."
+    assert len(brief["shots"]) == 4
+    assert brief["estimated_total_seconds"] == 3 + 15 + 5 + 4
+
+
+def test_generate_campaign_creative_brief_defaults_platform_when_unspecified(tmp_path):
+    campaign, package, *_ = _publish_ready_package(tmp_path)
+
+    brief = generate_campaign_creative_brief(campaign, package)
+
+    assert brief["platform"] == "unspecified"
+
+
+# --- assemble_publishing_package -------------------------------------------
+
+
+def test_assemble_publishing_package_bundles_everything_real(tmp_path):
+    from atlas.influencer.registry import attach_asset, add_platform_target
+
+    campaign, package, influencer, campaign_registry, influencer_registry = _publish_ready_package(tmp_path)
+    attach_asset(influencer.id, "video", "C:/real/video.mp4", influencer_registry)
+    add_platform_target(influencer.id, "TikTok", "@maya", influencer_registry)
+
+    bundle = assemble_publishing_package(campaign.id, influencer.id, campaign_registry, influencer_registry)
+
+    assert bundle["product_offer"] == "KetoDNA"
+    assert bundle["destination_url"] == "https://real.example.com/track/aff123"
+    assert bundle["title"] == "Why KetoDNA Actually Works"
+    assert bundle["real_media"] == [{"type": "video", "reference": "C:/real/video.mp4"}]
+    assert bundle["platforms"] == ["TikTok"]
+    assert bundle["landing_page_html"] is not None
+    assert bundle["landing_page_html"].startswith("<!doctype html>")
+    assert bundle["creative_brief"]["platform"] == "TikTok"
+
+
+def test_assemble_publishing_package_leaves_landing_page_honestly_none_when_not_ready(tmp_path):
+    influencer_registry = _influencer_registry(tmp_path)
+    influencer = _new_influencer(influencer_registry)
+    campaign = _new_campaign(tmp_path, [influencer.id])  # no destination_url, no templates
+    campaign_registry = _campaign_registry(tmp_path)
+
+    bundle = assemble_publishing_package(campaign.id, influencer.id, campaign_registry, influencer_registry)
+
+    assert bundle["landing_page_html"] is None
+    assert bundle["title"] == ""
+    assert bundle["real_media"] == []
