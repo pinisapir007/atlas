@@ -50,6 +50,26 @@ def attach_asset(influencer_id: str, asset_type: str, reference: str, registry: 
     return influencer
 
 
+def add_category(influencer_id: str, category: str, registry: InfluencerRegistry) -> DigitalInfluencer:
+    """Extends an existing influencer's real business-category tags —
+    the founder's explicit architectural directive (2026-08-03): "Digital
+    Influencers are not marketing assets. They are long-term business
+    assets... the objective is not to create more influencers." Real
+    mechanism behind reusing an already-proven influencer across a new
+    business model instead of creating a redundant new one (see
+    campaign_advance._find_reusable_influencer()) — categories stays the
+    same founder-visible, structural list it always was
+    (DigitalInfluencer.categories docstring), just now also extendable
+    after creation, not only set once at creation time. Idempotent: adding
+    a category the influencer already has is a no-op, never a duplicate
+    entry."""
+    influencer = registry.get_influencer(influencer_id)
+    if category not in influencer.categories:
+        influencer.categories.append(category)
+        registry.save_influencer(influencer)
+    return influencer
+
+
 def add_platform_target(influencer_id: str, platform: str, handle: str, registry: InfluencerRegistry) -> DigitalInfluencer:
     """Declares a platform this influencer is meant to operate on —
     structural fact only, never a publish action (Digital Influencer

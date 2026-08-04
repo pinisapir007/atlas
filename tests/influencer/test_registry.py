@@ -10,7 +10,7 @@ from atlas.influencer.models import (
     VisualAvatarProfile,
     VoiceProfile,
 )
-from atlas.influencer.registry import InfluencerRegistry, add_platform_target, attach_asset
+from atlas.influencer.registry import InfluencerRegistry, add_category, add_platform_target, attach_asset
 
 
 def _influencer(name="Mira", categories=None) -> DigitalInfluencer:
@@ -141,3 +141,36 @@ def test_add_platform_target_appends_a_new_target(tmp_path):
     assert updated.platform_targets[0].platform == "YouTube"
     assert updated.platform_targets[0].handle == "@mira.fit"
     assert updated.platform_targets[0].status == "planned"  # declared, not yet active — no publishing happens here
+
+
+def test_add_category_appends_a_new_category(tmp_path):
+    registry = InfluencerRegistry(tmp_path / "influencers.json")
+    influencer = _influencer(categories=["affiliate"])
+    registry.save_influencer(influencer)
+
+    updated = add_category(influencer.id, "digital_product", registry)
+
+    assert updated.categories == ["affiliate", "digital_product"]
+    # persisted, not just returned in-memory
+    assert registry.get_influencer(influencer.id).categories == ["affiliate", "digital_product"]
+
+
+def test_add_category_is_idempotent(tmp_path):
+    registry = InfluencerRegistry(tmp_path / "influencers.json")
+    influencer = _influencer(categories=["affiliate"])
+    registry.save_influencer(influencer)
+
+    add_category(influencer.id, "affiliate", registry)
+    updated = add_category(influencer.id, "affiliate", registry)
+
+    assert updated.categories == ["affiliate"]  # never duplicated
+
+
+def test_add_category_on_an_influencer_with_no_categories_yet(tmp_path):
+    registry = InfluencerRegistry(tmp_path / "influencers.json")
+    influencer = _influencer(categories=[])
+    registry.save_influencer(influencer)
+
+    updated = add_category(influencer.id, "affiliate", registry)
+
+    assert updated.categories == ["affiliate"]
