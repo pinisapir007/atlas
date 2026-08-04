@@ -27,11 +27,18 @@ Dropbox, NAS, and Gmail are registered as honest placeholders
 (atlas.integrations.resource_provider_placeholders) — always None,
 never fabricated, the same discipline the affiliate provider
 placeholders already established one engine over.
+
+Every real scan also replaces atlas.brain.resource_index.ResourceIndex
+with its complete, current result (2026-08-05) — "the Decision Engine
+must be able to query this index without rescanning every time." The
+index is a separate, dedicated module specifically so querying it never
+needs to import anything scanning-related.
 """
 
 from pathlib import Path
 
 from atlas.brain.resource_allowlist import ResourceAllowlist
+from atlas.brain.resource_index import ResourceIndex
 from atlas.brain.store import BrainStore, JSONFileStore
 from atlas.integrations.base import Resource, ResourceProvider
 from atlas.integrations.local_folder_provider import LocalFolderProvider
@@ -133,12 +140,16 @@ def scan_resources(
     allowlist: ResourceAllowlist | None = None,
     providers: list[ResourceProvider] | None = None,
     scan_state: ResourceScanState | None = None,
+    resource_index: ResourceIndex | None = None,
 ) -> dict:
     """The real discovery pipeline: run every registered provider (real
     LocalFolderProvider plus five honest placeholders by default),
     aggregate every real resource, detect real duplicates (matching
-    content hashes) and real changes since the last saved scan, then
-    persist this scan as the new baseline for next time.
+    content hashes) and real changes since the last saved scan, persist
+    this scan as the new diff baseline for next time, and replace the
+    queryable ResourceIndex with this scan's complete, current result —
+    the Decision Engine (or any future consumer) can then read
+    ResourceIndex directly without ever triggering a new scan itself.
 
     Per-provider fault isolation mirrors
     opportunity_discovery_engine.discover_opportunities() exactly: a
@@ -161,6 +172,8 @@ def scan_resources(
         allowlist = ResourceAllowlist()
     if scan_state is None:
         scan_state = ResourceScanState()
+    if resource_index is None:
+        resource_index = ResourceIndex()
     if providers is None:
         providers = _default_providers(allowlist)
 
@@ -186,6 +199,7 @@ def scan_resources(
     new_paths, modified_paths, deleted_paths = _diff_against_previous(combined, previous)
     duplicates = _find_duplicates(combined)
     scan_state.save_scan(combined)
+    resource_index.replace_index(combined)
 
     return {
         "resources": combined,

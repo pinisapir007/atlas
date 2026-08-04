@@ -31,6 +31,7 @@ from atlas.brain.digistore24_opportunity_discovery import discover_and_rank_digi
 from atlas.brain.opportunity_discovery_engine import discover_opportunities
 from atlas.brain.resource_allowlist import ResourceAllowlist
 from atlas.brain.resource_discovery_engine import scan_resources
+from atlas.brain.resource_index import ResourceIndex
 from atlas.integrations.digistore24 import Digistore24Provider
 from atlas.orchestrator.orchestrator import advance_execution, start_execution
 
@@ -531,6 +532,10 @@ def build_parser() -> argparse.ArgumentParser:
     resources_sub.add_parser("list-approved", help="list every currently approved folder")
 
     resources_sub.add_parser("scan", help="run the Resource Discovery Engine across every registered provider (approved local folders + honest placeholders), report new/modified/deleted/duplicate resources")
+
+    resources_index_parser = resources_sub.add_parser("index", help="query the already-persisted Resource Index -- never triggers a new scan, reads only what the last 'scan' already found")
+    resources_index_parser.add_argument("--folder", default=None, help="only show resources under this real folder path")
+    resources_index_parser.add_argument("--type", default=None, dest="resource_type", choices=["file", "folder", "symlink"], help="only show resources of this type")
 
     return parser
 
@@ -1279,6 +1284,20 @@ def _cmd_resources(args: argparse.Namespace) -> None:
             print(f"Duplicate groups: {len(result['duplicates'])}")
             for group in result["duplicates"]:
                 print(f"  duplicate: {group}")
+    elif cmd == "index":
+        index = ResourceIndex()
+        if args.folder:
+            resources = index.resources_in_folder(args.folder)
+        elif args.resource_type:
+            resources = index.find_by_type(args.resource_type)
+        else:
+            resources = index.all_resources()
+        if not resources:
+            print("0 resources in the index -- run 'atlas resources scan' first (this command never scans itself).")
+        else:
+            for r in resources:
+                size_str = f"{r.size_bytes}B" if r.size_bytes is not None else "-"
+                print(f"[{r.resource_type}] {r.path}\tname={r.name}\tsize={size_str}\tmodified={r.modified_at or '-'}\thash={r.content_hash or '-'}")
 
 
 def _cmd_campaign(args: argparse.Namespace) -> None:

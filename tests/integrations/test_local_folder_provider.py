@@ -89,6 +89,50 @@ def test_multiple_approved_folders_are_all_scanned(tmp_path):
     assert str(folder_b / "y.txt") in paths
 
 
+def test_resource_has_a_real_name_separate_from_its_full_path(tmp_path):
+    real_file = tmp_path / "report.txt"
+    real_file.write_text("real content")
+
+    resources = LocalFolderProvider([str(tmp_path)]).fetch_resources()
+
+    files = [r for r in resources if r.resource_type == "file"]
+    assert files[0].name == "report.txt"
+    assert files[0].path == str(real_file)
+
+
+def test_resource_has_a_real_created_at_timestamp(tmp_path):
+    real_file = tmp_path / "report.txt"
+    real_file.write_text("real content")
+
+    resources = LocalFolderProvider([str(tmp_path)]).fetch_resources()
+
+    files = [r for r in resources if r.resource_type == "file"]
+    assert files[0].created_at is not None
+
+
+def test_folder_resources_also_get_a_real_name_and_created_at(tmp_path):
+    (tmp_path / "sub").mkdir()
+
+    resources = LocalFolderProvider([str(tmp_path)]).fetch_resources()
+
+    folders = [r for r in resources if r.resource_type == "folder"]
+    assert folders[0].name == "sub"
+    assert folders[0].created_at is not None
+
+
+def test_local_folder_provider_exposes_no_write_delete_or_move_capability():
+    # A real, structural safety guarantee (not just a docstring claim):
+    # this class has exactly one real capability, reading. Mirrors the
+    # dataclasses.fields()-based structural assertions already used
+    # elsewhere in this codebase (e.g. InfluencerDraft) to prove a
+    # boundary in code, not just prose.
+    forbidden_substrings = ("write", "delete", "remove", "move", "modify", "rename", "update", "create")
+    public_members = [m for m in dir(LocalFolderProvider) if not m.startswith("_")]
+    assert public_members == ["fetch_resources", "name"]
+    for member in public_members:
+        assert not any(word in member.lower() for word in forbidden_substrings)
+
+
 def test_only_scans_the_exact_approved_folders_never_their_parent(tmp_path):
     approved = tmp_path / "approved"
     approved.mkdir()

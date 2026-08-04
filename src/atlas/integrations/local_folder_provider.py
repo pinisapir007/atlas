@@ -14,12 +14,15 @@ the caller (atlas.brain.resource_allowlist / resource_discovery_engine)
 design already applies one layer up in this codebase (unproven safety
 never defaults to "proceed").
 
-Metadata only, never content: real path, type (file/folder), size,
-modified time, and a real SHA-256 hash for files — computing that hash
-requires transiently reading a file's real bytes, but nothing beyond
-the digest is ever kept or returned. Symlinks are recorded but never
-followed, so an approved folder can never be used to silently reach
-somewhere outside it via a symlink.
+Metadata only, never content: real name, path, type (file/folder),
+size, modified/created timestamps, and a real SHA-256 hash for files —
+computing that hash requires transiently reading a file's real bytes,
+but nothing beyond the digest is ever kept or returned. Symlinks are
+recorded but never followed, so an approved folder can never be used to
+silently reach somewhere outside it via a symlink. No method on this
+class writes, deletes, moves, or modifies anything, anywhere — reading
+is the only capability that exists here, structurally, not just by
+convention (see test_local_folder_provider.py's own assertion of this).
 """
 
 import hashlib
@@ -74,6 +77,7 @@ class LocalFolderProvider:
                     provider=self.name,
                     path=folder,
                     resource_type="folder",
+                    name=root.name,
                     error=f"approved path is not a real, accessible directory: {folder}",
                 )
             ]
@@ -94,6 +98,7 @@ class LocalFolderProvider:
                 provider=self.name,
                 path=path_str,
                 resource_type="symlink",
+                name=entry.name,
                 error="symlink skipped -- not followed, for safety",
             )
 
@@ -104,6 +109,7 @@ class LocalFolderProvider:
                 provider=self.name,
                 path=path_str,
                 resource_type="folder" if entry.is_dir() else "file",
+                name=entry.name,
                 error=str(exc),
             )
 
@@ -112,14 +118,18 @@ class LocalFolderProvider:
                 provider=self.name,
                 path=path_str,
                 resource_type="folder",
+                name=entry.name,
                 modified_at=_isoformat(stat.st_mtime),
+                created_at=_isoformat(stat.st_ctime),
             )
 
         return Resource(
             provider=self.name,
             path=path_str,
             resource_type="file",
+            name=entry.name,
             size_bytes=stat.st_size,
             modified_at=_isoformat(stat.st_mtime),
+            created_at=_isoformat(stat.st_ctime),
             content_hash=_hash_file(entry),
         )

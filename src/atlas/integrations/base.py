@@ -160,13 +160,23 @@ class Resource:
     computing it may require transiently reading a file's real bytes,
     but nothing beyond the digest is ever kept. None for a folder
     (nothing meaningful to hash) or a file whose hash couldn't be
-    computed (recorded via `error`, never silently dropped)."""
+    computed (recorded via `error`, never silently dropped).
+
+    `name` is the real base name (the last path component) — kept
+    separate from `path` since a caller querying "what is this called"
+    shouldn't have to re-parse a full path. `created_at` is real but
+    honestly platform-dependent: on Windows it is a real creation time;
+    on POSIX systems the underlying `st_ctime` is the last metadata-
+    change time, not creation — never presented as more precise than
+    what the real OS actually reports."""
 
     provider: str
     path: str
     resource_type: str  # "file" | "folder"
+    name: str = ""
     size_bytes: int | None = None
     modified_at: str | None = None
+    created_at: str | None = None
     content_hash: str | None = None
     raw: dict = field(default_factory=dict)
     error: str | None = None
