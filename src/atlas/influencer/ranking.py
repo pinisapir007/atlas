@@ -26,3 +26,30 @@ def rank_influencers(category: str, registry: InfluencerRegistry, kpis: KPIRegis
     eligible = [inf for inf in registry.influencers() if inf.status == "active" and category in inf.categories]
     snapshots = [performance_snapshot(inf.id, kpis, metric_names) for inf in eligible]
     return sorted(snapshots, key=lambda s: s["factors_available"], reverse=True)
+
+
+def prefer_market_match(ranked: list[dict], market: str, registry: InfluencerRegistry) -> dict | None:
+    """Given rank_influencers()'s already-ranked candidates, prefers the
+    highest-ranked one whose IdentityProfile.market exactly matches
+    `market`, falling back to the top-ranked candidate overall when no
+    candidate matches or `market` is "" (2026-08-03, Opportunity Discovery
+    V1 — AffiliateOpportunity.recommended_market). Compares against
+    `market` (the raw code, e.g. "US") — not `nationality` (the human name,
+    e.g. "American": fixed 2026-08-03 after a live demo caught that a
+    name can never equal a code, so every influencer created via the real
+    Digital Influencer Factory path was silently never matching here) and
+    not `language` (the language they speak). Deliberately an exact match,
+    never inferred/fuzzy — the same discipline confidence.py's
+    provider/subject scoping already uses. Never changes today's selection
+    when no real market recommendation exists: every founder-manual
+    opportunity has recommended_market == "", so this is a pure extension,
+    not a behavior change, for every campaign created that way. Returns
+    None only when `ranked` itself is empty (nothing to choose from)."""
+    if not ranked:
+        return None
+    if market:
+        for entry in ranked:
+            influencer = registry.get_influencer(entry["influencer_id"])
+            if influencer.identity.market == market:
+                return entry
+    return ranked[0]

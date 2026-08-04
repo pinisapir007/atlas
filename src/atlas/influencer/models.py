@@ -5,15 +5,43 @@ from atlas.brain.models import new_id, now
 
 @dataclass
 class IdentityProfile:
-    """Who this persona is. Every field is founder-authored — there is no
-    real generation of a name/personality/niche anywhere in this codebase,
-    the same "no fabrication" discipline every other domain here already
-    follows."""
+    """Who this persona is. `name`/`personality`/`bio` are always the
+    founder's final call — there is no real, credentialed generation
+    integration anywhere in this codebase (no LLM/image API), the same "no
+    fabrication" discipline every other domain here already follows.
+
+    `market` (added 2026-08-03, fixed same day after a live-demo catch)
+    holds the real, raw market/country code this influencer was built for
+    (e.g. "US", "MX") — the exact same value `AffiliateOpportunity.
+    recommended_market`/`Finding.market` use throughout Opportunity
+    Discovery, and the field every real matching site (`influencer.
+    ranking.prefer_market_match()`, `campaign_advance.
+    _missing_market_influencer_task()`/`_find_reusable_influencer()`)
+    compares against. `nationality` is the human-readable name for the
+    same market (e.g. "American"), derived via the same transparent,
+    editable lookup table (`influencer.factory.MARKET_LOCALE`) — for
+    display only, never for matching: a name like "American" can never
+    equal a code like "US", so code-to-code comparison needs its own real
+    field, not a repurposed display one. Both are plain, real-world facts,
+    not invented identity details — the same "stated, editable assumption"
+    class as `confidence.HASHTAG_PLATFORMS`.
+
+    `age_range` (added 2026-08-03) holds whatever the founder settles on at
+    creation time. `influencer.factory.suggest_persona()` proposes a
+    starting value for it (and for `name`/`personality`) — explicitly
+    labeled a creative suggestion, never evidence, never authoritative —
+    the founder's explicit choice (2026-08-03) for how far automation goes
+    on fields with no real evidence source. Every one of these stays
+    editable/overridable at creation time regardless of where the starting
+    value came from."""
 
     name: str
     language: str = ""
+    nationality: str = ""
+    market: str = ""
     niche: str = ""  # open string, same convention as Finding.category/Task.category
     personality: str = ""
+    age_range: str = ""
     bio: str = ""
 
 
