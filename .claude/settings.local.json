@@ -9,7 +9,8 @@
       "PowerShell(python -m pytest -q 2>&1 | Select-Object -Last 60)",
       "PowerShell(python -m pytest -q 2>&1 | Select-Object -Last 30)",
       "WebSearch",
-      "WebFetch(domain:ketodna.app)"
+      "WebFetch(domain:ketodna.app)",
+      "Bash(python -m pytest -q)"
     ]
   }
 }

@@ -478,6 +478,45 @@ def test_affiliate_revenue_record_writes_a_ledger_entry(tmp_path, monkeypatch, c
     assert entries[0].provider == "digistore24"
 
 
+def test_affiliate_digistore24_verify_reports_no_key_configured(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DIGISTORE24_API_KEY", raising=False)
+
+    main(["affiliate", "digistore24", "verify"])
+
+    assert "not set" in capsys.readouterr().out
+
+
+def test_affiliate_digistore24_verify_prints_the_real_response(tmp_path, monkeypatch, capsys):
+    from unittest.mock import patch
+    import json as json_module
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DIGISTORE24_API_KEY", "real-test-key")
+
+    class _FakeResponse:
+        status = 200
+
+        def __init__(self, body):
+            self._body = json_module.dumps(body).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return self._body
+
+    with patch("urllib.request.urlopen", return_value=_FakeResponse({"result": "ok", "data": {"email": "founder@example.com"}})):
+        main(["affiliate", "digistore24", "verify"])
+
+    out = capsys.readouterr().out
+    assert "Connection verified" in out
+    assert "founder@example.com" in out
+
+
 def test_influencer_create_and_list(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
 

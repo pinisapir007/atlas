@@ -1,5 +1,6 @@
 import sys
 import argparse
+import json
 
 from atlas.assets.affiliate_intelligence.agent import AffiliateIntelligenceAgent
 from atlas.assets.creative_agent.agent import CreativeAgent
@@ -9,17 +10,24 @@ from atlas.assets.recruitment_workforce.agent import RecruitmentAgent
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.confidence import confidence_score, rank_by_confidence
 from atlas.brain.explain import explain_opportunity
+from atlas.brain.asset_value import success_law_lifetime_value
+from atlas.brain.opportunity_ranking import explain_opportunity_subject, rank_opportunities
+from atlas.brain.portfolio import portfolio_entries, rank_portfolio
 from atlas.brain.console import build_console_view, format_console_view
 from atlas.brain.kpi_intake import record_manual_cost, record_manual_refund, record_manual_revenue, record_manual_settlement
-from atlas.brain.models import Finding, Task
+from atlas.brain.models import Finding, SuccessLaw, Task
 from atlas.core.registry import Registry, UnsupportedVerb, VERBS
 from atlas.app import run_app
-from atlas.campaign.registry import CampaignRegistry, create_campaign, link_destination_url, link_goal, refresh_confidence, set_status
+from atlas.brand.factory import create_brand_from_proposal
+from atlas.brand.registry import BrandRegistry, attach_brand_asset
+from atlas.campaign.registry import CampaignRegistry, create_campaign, link_brand, link_destination_url, link_goal, refresh_confidence, set_status
+from atlas.influencer.factory import create_influencer_from_proposal
 from atlas.influencer.models import TEMPLATE_KINDS, DigitalInfluencer, IdentityProfile
 from atlas.influencer.performance import record_metric
-from atlas.influencer.production import add_template, generate_campaign_content, templates_of_kind
+from atlas.influencer.production import add_template, assemble_publishing_package, generate_campaign_content, templates_of_kind
 from atlas.influencer.ranking import rank_influencers
 from atlas.influencer.registry import InfluencerRegistry, add_platform_target, attach_asset
+from atlas.integrations.digistore24 import Digistore24Provider
 from atlas.orchestrator.orchestrator import advance_execution, start_execution
 
 
@@ -107,7 +115,22 @@ def build_parser() -> argparse.ArgumentParser:
     finding_add.add_argument(
         "--provider", default="", help="a specific registered provider this finding is about, e.g. 'digistore24' — leave unset for a category-general finding"
     )
+    finding_add.add_argument(
+        "--subject", default="", help="the specific candidate product/topic this finding is evidence for, e.g. 'KetoDNA' — leave unset for a category-general finding"
+    )
+    finding_add.add_argument(
+        "--market", default="", help="the country/language this finding applies to, e.g. 'US' — leave unset if not market-specific"
+    )
     finding_sub.add_parser("list", help="list every recorded finding")
+
+    law_parser = brain_sub.add_parser("law", help="Success Laws: generalized business intelligence extracted from real evidence -- never a blueprint to copy")
+    law_sub = law_parser.add_subparsers(dest="law_command", required=True)
+    law_add = law_sub.add_parser("add", help="record a real Success Law -- a transferable principle, not an implementation to copy")
+    law_add.add_argument("principle", help="the generalized, transferable rule, e.g. 'first-person testimonial framing outperforms feature-listing for consumer health products'")
+    law_add.add_argument("source_description", help="what was actually observed, e.g. 'analysis of a real testimonial-style video' -- never phrased as 'do what X did'")
+    law_add.add_argument("--evidence-finding", action="append", default=[], dest="evidence_finding_ids", help="a real finding id (see 'atlas brain finding list') this principle is grounded in (repeatable)")
+    law_add.add_argument("--model", action="append", default=[], dest="applicable_business_models", help="a business category this principle generalizes to, e.g. affiliate (repeatable)")
+    law_sub.add_parser("list", help="list every recorded Success Law")
 
     decisions_parser = brain_sub.add_parser("decisions", help="Decision Engine verdict history — full traceability, read-only")
     decisions_sub = decisions_parser.add_subparsers(dest="decisions_command", required=True)
@@ -245,6 +268,11 @@ def build_parser() -> argparse.ArgumentParser:
     refund_record.add_argument("--evidence", default="")
     refund_record.add_argument("--document", default="", dest="document_ref")
 
+    ds24_parser = affiliate_sub.add_parser("digistore24", help="real, live Digistore24 API calls (needs DIGISTORE24_API_KEY)")
+    ds24_sub = ds24_parser.add_subparsers(dest="digistore24_command", required=True)
+    ds24_sub.add_parser("verify", help="one real, low-risk getUserInfo call to confirm the API key/auth header actually work")
+    ds24_sub.add_parser("sales", help="real listPurchases call — prints the API's raw response, unmapped, for inspection")
+
     creative_parser = subparsers.add_parser("creative", help="Creative Agent brief drafts and real asset attachment")
     creative_sub = creative_parser.add_subparsers(dest="creative_command", required=True)
     creative_attach = creative_sub.add_parser(
@@ -260,6 +288,8 @@ def build_parser() -> argparse.ArgumentParser:
     influencer_create = influencer_sub.add_parser("create", help="create a new digital influencer persona")
     influencer_create.add_argument("--name", required=True)
     influencer_create.add_argument("--language", default="")
+    influencer_create.add_argument("--nationality", default="", help="human-readable, e.g. 'Mexican' -- display only, not used for matching")
+    influencer_create.add_argument("--market", default="", help="the real market/country code, e.g. 'MX' -- matched against a campaign's recommended market when selecting an influencer")
     influencer_create.add_argument("--niche", default="")
     influencer_create.add_argument("--personality", default="")
     influencer_create.add_argument("--bio", default="")
@@ -267,6 +297,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--category", action="append", default=[], dest="categories",
         help="a business category this influencer can be assigned to (repeatable), e.g. --category affiliate",
     )
+
+    influencer_create_from_proposal = influencer_sub.add_parser(
+        "create-from-proposal",
+        help="materialize a real influencer from an approved Digital Influencer Factory proposal — market/nationality/niche/audience from real evidence, name/personality/age/style default to ATLAS's AI-suggested draft (see the proposal text), override any of them",
+    )
+    influencer_create_from_proposal.add_argument("task_id", help="the approved create_asset task id (see 'atlas brain proposals')")
+    influencer_create_from_proposal.add_argument("--name", default=None, help="defaults to the AI-suggested name if omitted")
+    influencer_create_from_proposal.add_argument("--personality", default=None, help="defaults to the AI-suggested personality if omitted")
+    influencer_create_from_proposal.add_argument("--age-range", dest="age_range", default=None, help="defaults to the AI-suggested age range if omitted")
+    influencer_create_from_proposal.add_argument("--communication-style", dest="communication_style", default=None, help="defaults to the AI-suggested communication style if omitted")
+    influencer_create_from_proposal.add_argument("--visual-style", dest="visual_style", default=None, help="defaults to the AI-suggested visual style if omitted")
+    influencer_create_from_proposal.add_argument("--bio", default="", help="no AI suggestion for bio -- founder-only")
 
     influencer_sub.add_parser("list", help="list every digital influencer")
 
@@ -308,6 +350,31 @@ def build_parser() -> argparse.ArgumentParser:
     influencer_template_list = influencer_template_sub.add_parser("list", help="list an influencer's templates, optionally filtered by kind")
     influencer_template_list.add_argument("influencer_id")
     influencer_template_list.add_argument("--kind", default=None, choices=sorted(TEMPLATE_KINDS))
+
+    brand_parser = subparsers.add_parser("brand", help="Brand Factory: the company/product identity a Campaign operates under")
+    brand_sub = brand_parser.add_subparsers(dest="brand_command", required=True)
+
+    brand_create_from_proposal = brand_sub.add_parser(
+        "create-from-proposal",
+        help="materialize a real brand from an approved Brand Factory proposal — niche/category/market from real evidence, name defaults to the real product name, tagline/visual_identity/voice default to ATLAS's AI-suggested draft, override any of them",
+    )
+    brand_create_from_proposal.add_argument("task_id", help="the approved create_asset task id (see 'atlas brain proposals')")
+    brand_create_from_proposal.add_argument("--name", default=None, help="defaults to the real product name if omitted")
+    brand_create_from_proposal.add_argument("--tagline", default=None, help="defaults to the AI-suggested tagline if omitted")
+    brand_create_from_proposal.add_argument("--visual-identity", dest="visual_identity", default=None, help="defaults to the AI-suggested visual identity if omitted")
+    brand_create_from_proposal.add_argument("--voice", default=None, help="defaults to the AI-suggested brand voice if omitted")
+
+    brand_sub.add_parser("list", help="list every brand")
+
+    brand_show = brand_sub.add_parser("show", help="show one brand's full profile")
+    brand_show.add_argument("brand_id")
+
+    brand_asset_parser = brand_sub.add_parser("asset", help="manage a brand's real asset library (logo, banner, ...)")
+    brand_asset_sub = brand_asset_parser.add_subparsers(dest="brand_asset_command", required=True)
+    brand_asset_attach = brand_asset_sub.add_parser("attach", help="record a real asset (logo/banner/...) for a brand")
+    brand_asset_attach.add_argument("brand_id")
+    brand_asset_attach.add_argument("--type", required=True, dest="asset_type", choices=["logo", "banner", "image", "video"])
+    brand_asset_attach.add_argument("--reference", required=True, help="a real file path or URL to the asset")
 
     campaign_parser = subparsers.add_parser("campaign", help="Campaign Intelligence Layer: the real business unit ATLAS manages end-to-end")
     campaign_sub = campaign_parser.add_subparsers(dest="campaign_command", required=True)
@@ -411,6 +478,14 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_refund_record.add_argument("--evidence", default="")
     campaign_refund_record.add_argument("--document", default="", dest="document_ref")
 
+    campaign_package = campaign_sub.add_parser(
+        "package",
+        help="assemble the real, complete publishing package for a campaign+influencer -- copy, real media, landing page, creative brief, tracking link, all in one artifact",
+    )
+    campaign_package.add_argument("campaign_id")
+    campaign_package.add_argument("influencer_id")
+    campaign_package.add_argument("--export-landing-page", default=None, dest="export_landing_page", help="write the real landing page HTML to this file path")
+
     execution_parser = campaign_sub.add_parser("execution", help="Execution Orchestrator: coordinate a campaign's real business execution")
     execution_sub = execution_parser.add_subparsers(dest="execution_command", required=True)
 
@@ -422,6 +497,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     execution_show = execution_sub.add_parser("show", help="show one execution plan's full step-by-step state")
     execution_show.add_argument("plan_id")
+
+    portfolio_parser = subparsers.add_parser("portfolio", help="Business Asset Portfolio: every real, reusable asset ATLAS has created, across all types, ranked by measured lifetime value")
+    portfolio_sub = portfolio_parser.add_subparsers(dest="portfolio_command", required=True)
+    portfolio_sub.add_parser("list", help="list every real asset across every type, ranked by lifetime value")
 
     return parser
 
@@ -463,8 +542,12 @@ def main(argv: list[str] | None = None) -> int:
             _cmd_creative(args)
         elif args.command == "influencer":
             _cmd_influencer(args)
+        elif args.command == "brand":
+            _cmd_brand(args)
         elif args.command == "campaign":
             _cmd_campaign(args)
+        elif args.command == "portfolio":
+            _cmd_portfolio(args)
         else:
             _cmd_verb(args.command, args.asset)
     except (KeyError, UnsupportedVerb, ValueError) as exc:
@@ -609,6 +692,25 @@ def _cmd_brain(args: argparse.Namespace) -> None:
                     print(f"    - {r}")
                 print(f"  Why ranked here: {explanation['rank_reason']}")
 
+                opportunities = rank_opportunities(result["category"], brain.knowledge)
+                if opportunities:
+                    print("  Specific opportunities (Opportunity Discovery V1):")
+                    for j, opp in enumerate(opportunities, start=1):
+                        opp_score = f"{opp['score']:.3f}" if opp["score"] is not None else "unscored"
+                        market = opp["recommended_market"] or "unspecified"
+                        print(
+                            f"    - {opp['subject']}: confidence={opp_score} "
+                            f"sources={opp['independent_sources']} recommended_market={market}"
+                        )
+                        opp_explanation = explain_opportunity_subject(result["category"], opp["subject"], brain.knowledge, rank=j)
+                        for e in opp_explanation["evidence"]:
+                            print(f"        - [{e['source']}] {e['description']} ({e['evidence'] or 'no evidence URL'})")
+                        for r in opp_explanation["risks"]:
+                            print(f"        risk: {r}")
+                        for law in opp_explanation["success_laws"]:
+                            backed = "evidence-backed" if law.evidence_finding_ids else "hypothesis"
+                            print(f"        success law ({backed}): {law.principle}")
+
     elif cmd == "finding":
         if args.finding_command == "add":
             finding = Finding(
@@ -617,14 +719,41 @@ def _cmd_brain(args: argparse.Namespace) -> None:
                 description=args.description,
                 evidence=args.evidence,
                 provider=args.provider,
+                subject=args.subject,
+                market=args.market,
             )
             brain.knowledge.save_finding(finding)
-            print(f"{finding.id}\t{finding.category}\t{finding.provider or '(category-general)'}\t{finding.description}")
+            print(f"{finding.id}\t{finding.category}\t{finding.provider or '(category-general)'}\t{finding.subject or '(no subject)'}\t{finding.description}")
         else:
             for finding in brain.knowledge.findings():
                 print(
                     f"{finding.id}\t{finding.category}\t{finding.provider or '(category-general)'}\t"
+                    f"{finding.subject or '(no subject)'}\t{finding.market or '(no market)'}\t"
                     f"{finding.source}\t{finding.description}\t{finding.evidence}"
+                )
+
+    elif cmd == "law":
+        if args.law_command == "add":
+            unknown = [fid for fid in args.evidence_finding_ids if fid not in {f.id for f in brain.knowledge.findings()}]
+            if unknown:
+                raise ValueError(f"unknown finding id(s): {unknown} — record them with 'atlas brain finding add' first")
+            law = SuccessLaw(
+                principle=args.principle,
+                source_description=args.source_description,
+                evidence_finding_ids=args.evidence_finding_ids,
+                applicable_business_models=args.applicable_business_models,
+            )
+            brain.knowledge.save_success_law(law)
+            status = "evidence-backed" if law.evidence_finding_ids else "hypothesis (no cited evidence yet)"
+            print(f"{law.id}\t{status}\t{law.principle}")
+        else:
+            for law in brain.knowledge.success_laws():
+                status = "evidence-backed" if law.evidence_finding_ids else "hypothesis"
+                track_record = success_law_lifetime_value(law.id, brain.campaigns, brain.memory, brain.kpis)
+                track_record_str = f"{track_record:.2f}" if track_record is not None else "no measured campaigns yet"
+                print(
+                    f"{law.id}\t{status}\tmodels={','.join(law.applicable_business_models) or '(unspecified)'}\t"
+                    f"real_track_record={track_record_str}\t{law.principle}\tsource={law.source_description}"
                 )
 
     elif cmd == "decisions":
@@ -686,6 +815,30 @@ def _print_report(report: dict) -> None:
             f"priority {item['old_priority']}->{item['new_priority']}, "
             f"status {item['old_status']}->{item['new_status']} — {item['reason']} ({item['goal_id']})"
         )
+    opportunities = report["opportunities"]
+    print(f"Opportunities: {opportunities['findings_this_period']} new finding(s) this period")
+    for entry in opportunities["categories_ranked"]:
+        confidence = f"{entry['confidence']:.3f}" if entry["confidence"] is not None else "unscored"
+        print(f"  - {entry['category']}: confidence={confidence}", end="")
+        if entry["top_subject"]:
+            score = f"{entry['top_subject_score']:.3f}" if entry["top_subject_score"] is not None else "unscored"
+            print(f" top opportunity: {entry['top_subject']} (score={score}, market={entry['recommended_market'] or 'unspecified'})")
+        else:
+            print(" (no specific opportunities ranked yet)")
+    success_laws = report["success_laws"]
+    print(f"Success Laws: {success_laws['total']} total, {success_laws['evidence_backed']} evidence-backed")
+    for law in success_laws["ranked_by_track_record"]:
+        backed = "evidence-backed" if law["evidence_backed"] else "hypothesis"
+        track_record = f"{law['real_track_record']:.2f}" if law["real_track_record"] is not None else "no measured campaigns yet"
+        print(f"  - [{backed}] {law['principle']} — real_track_record={track_record}")
+    print("Asset Portfolio (top by real lifetime value):")
+    for asset in report["asset_portfolio"]:
+        value = f"{asset['lifetime_value']:.2f}" if asset["lifetime_value"] is not None else "not yet measured"
+        print(f"  - [{asset['asset_type']}] {asset['name']} ({asset['market']}): lifetime_value={value}")
+    readiness = report["publishing_readiness"]
+    print(f"Publishing packages ready: {readiness['packages_ready']}")
+    for blocked in readiness["steps_blocked"]:
+        print(f"  - blocked: campaign {blocked['campaign_id']} / influencer {blocked['influencer_id']} — {blocked['reason']}")
 
 
 def _cmd_recruitment(args: argparse.Namespace) -> None:
@@ -839,6 +992,23 @@ def _cmd_affiliate(args: argparse.Namespace) -> None:
             )
             print(f"recorded revenue_{goal_id} -= {args.amount} (refund)")
 
+    elif cmd == "digistore24":
+        provider = Digistore24Provider()
+        if args.digistore24_command == "verify":
+            result = provider.verify_connection()
+            if result is None:
+                print("DIGISTORE24_API_KEY is not set — nothing to verify")
+            else:
+                print("Connection verified — real getUserInfo response:")
+                print(json.dumps(result, indent=2))
+        elif args.digistore24_command == "sales":
+            sales = provider.fetch_recent_sales()
+            if sales is None:
+                print("DIGISTORE24_API_KEY is not set — nothing to fetch")
+            else:
+                print(f"{len(sales)} real record(s) from listPurchases (raw, unmapped):")
+                print(json.dumps(sales, indent=2))
+
 
 def _resolve_package_goal_id(package_id: str, purpose: str) -> str:
     package = PublishingQueueStore().get_package(package_id)
@@ -870,12 +1040,25 @@ def _cmd_influencer(args: argparse.Namespace) -> None:
     if cmd == "create":
         influencer = DigitalInfluencer(
             identity=IdentityProfile(
-                name=args.name, language=args.language, niche=args.niche, personality=args.personality, bio=args.bio
+                name=args.name, language=args.language, nationality=args.nationality, market=args.market, niche=args.niche,
+                personality=args.personality, bio=args.bio,
             ),
             categories=args.categories,
         )
         registry.save_influencer(influencer)
         print(f"{influencer.id}\t{influencer.identity.name}\t{influencer.identity.niche}\t{','.join(influencer.categories)}")
+
+    elif cmd == "create-from-proposal":
+        brain = CEOBrain()
+        influencer = create_influencer_from_proposal(
+            args.task_id, brain.memory, brain.affiliate_store, brain.knowledge, registry,
+            name=args.name, personality=args.personality, age_range=args.age_range,
+            communication_style=args.communication_style, visual_style=args.visual_style, bio=args.bio,
+        )
+        print(
+            f"{influencer.id}\t{influencer.identity.name}\t{influencer.identity.nationality}\t{influencer.identity.market}\t"
+            f"{influencer.identity.language}\t{influencer.identity.niche}\t{influencer.identity.age_range}\t{','.join(influencer.categories)}"
+        )
 
     elif cmd == "list":
         for influencer in registry.influencers():
@@ -884,7 +1067,10 @@ def _cmd_influencer(args: argparse.Namespace) -> None:
     elif cmd == "show":
         influencer = registry.get_influencer(args.influencer_id)
         print(f"{influencer.id}\t{influencer.identity.name}\t{influencer.status}")
-        print(f"  Identity: language={influencer.identity.language} niche={influencer.identity.niche} personality={influencer.identity.personality}")
+        print(
+            f"  Identity: nationality={influencer.identity.nationality} market={influencer.identity.market} language={influencer.identity.language} "
+            f"niche={influencer.identity.niche} age_range={influencer.identity.age_range} personality={influencer.identity.personality}"
+        )
         print(f"  Voice: {influencer.voice.description or '(not set)'} (provider={influencer.voice.provider or 'none'})")
         print(f"  Visual: {influencer.visual.description or '(not set)'} (provider={influencer.visual.provider or 'none'})")
         print(f"  Content style: tone={influencer.content_style.tone or '(not set)'} formats={influencer.content_style.format_preferences}")
@@ -930,6 +1116,55 @@ def _cmd_influencer(args: argparse.Namespace) -> None:
                 print(f"{template.id}\t{template.kind}\t{template.name}\t{template.content}")
 
 
+def _cmd_brand(args: argparse.Namespace) -> None:
+    cmd = args.brand_command
+    registry = BrandRegistry()
+
+    if cmd == "create-from-proposal":
+        brain = CEOBrain()
+        campaigns = CampaignRegistry()
+        brand = create_brand_from_proposal(
+            args.task_id, brain.memory, brain.affiliate_store, brain.knowledge, registry,
+            campaign_registry=campaigns, name=args.name, tagline=args.tagline,
+            visual_identity=args.visual_identity, voice=args.voice,
+        )
+        print(f"{brand.id}\t{brand.name}\t{brand.niche}\t{brand.category}\t{brand.market}")
+
+    elif cmd == "list":
+        for brand in registry.brands():
+            print(f"{brand.id}\t{brand.name}\t{brand.niche}\t{brand.market}")
+
+    elif cmd == "show":
+        brand = registry.get_brand(args.brand_id)
+        print(f"{brand.id}\t{brand.name}")
+        print(f"  Tagline: {brand.tagline or '(not set)'}")
+        print(f"  Visual identity: {brand.visual_identity or '(not set)'}")
+        print(f"  Voice: {brand.voice or '(not set)'}")
+        print(f"  Niche: {brand.niche}\tCategory: {brand.category}\tMarket: {brand.market or '(unspecified)'}")
+        print(f"  Source opportunity: {brand.source_opportunity_id or '(none)'}")
+        for asset in brand.asset_library:
+            print(f"  Asset: {asset.asset_type}\t{asset.reference}")
+
+    elif cmd == "asset":
+        if args.brand_asset_command == "attach":
+            brand = attach_brand_asset(args.brand_id, args.asset_type, args.reference, registry)
+            print(f"{brand.id}\tasset library now has {len(brand.asset_library)} entrie(s)")
+
+
+def _cmd_portfolio(args: argparse.Namespace) -> None:
+    cmd = args.portfolio_command
+    brain = CEOBrain()
+
+    if cmd == "list":
+        ranked = rank_portfolio(portfolio_entries(brain.influencers, brain.brands, brain.campaigns, brain.memory, brain.kpis))
+        for entry in ranked:
+            ltv = f"{entry.lifetime_value:.2f}" if entry.lifetime_value is not None else "unmeasured"
+            print(
+                f"{entry.asset_id}\t{entry.asset_type}\t{entry.name}\tmarket={entry.market or '(unspecified)'}\t"
+                f"business_models={','.join(entry.business_models) or '(none)'}\tlifetime_value={ltv}"
+            )
+
+
 def _cmd_campaign(args: argparse.Namespace) -> None:
     cmd = args.campaign_command
     registry = CampaignRegistry()
@@ -960,6 +1195,8 @@ def _cmd_campaign(args: argparse.Namespace) -> None:
         print(f"  Customer problem: {campaign.customer_problem or '(not set)'}")
         print(f"  Product / Offer: {campaign.product_offer or '(not set)'}")
         print(f"  Destination URL: {campaign.destination_url or '(not set)'}")
+        print(f"  Brand: {campaign.brand_id or '(not set)'}")
+        print(f"  Success Laws in effect: {', '.join(campaign.success_law_ids) or '(none)'}")
         print(f"  Digital Influencer(s): {', '.join(campaign.influencer_ids) or '(none)'}")
         print(f"  Platform strategy: {campaign.platform_strategy or '(not set)'}")
         print(f"  Content strategy: {campaign.content_strategy or '(not set)'}\tFormats: {campaign.content_formats}")
@@ -1049,6 +1286,29 @@ def _cmd_campaign(args: argparse.Namespace) -> None:
                 provider=args.provider, evidence=args.evidence, document_ref=args.document_ref,
             )
             print(f"recorded revenue_{goal_id} -= {args.amount} (refund)")
+
+    elif cmd == "package":
+        bundle = assemble_publishing_package(args.campaign_id, args.influencer_id, registry, brain.influencers)
+        print(f"Product/offer: {bundle['product_offer']}")
+        print(f"Destination URL: {bundle['destination_url'] or '(not set)'}")
+        print(f"Title: {bundle['title'] or '(not set)'}")
+        print(f"Description: {bundle['description'] or '(not set)'}")
+        print(f"Hook: {bundle['hook'] or '(not set)'}")
+        print(f"CTA: {bundle['cta'] or '(not set)'}")
+        print(f"Caption: {bundle['caption'] or '(not set)'}")
+        print(f"Hashtags: {bundle['hashtags'] or '(not set)'}")
+        print(f"Real media: {bundle['real_media'] or '(none attached)'}")
+        print(f"Platforms: {', '.join(bundle['platforms']) or '(none declared)'}")
+        print(f"Landing page: {'ready (' + str(len(bundle['landing_page_html'])) + ' chars)' if bundle['landing_page_html'] else 'not ready yet'}")
+        print("Creative brief:")
+        for shot in bundle["creative_brief"]["shots"]:
+            print(f"  shot {shot['shot']} ({shot['duration_seconds']}s): {shot['direction']}")
+        if args.export_landing_page:
+            if not bundle["landing_page_html"]:
+                raise ValueError("cannot export landing page — it isn't ready yet (see missing fields above)")
+            with open(args.export_landing_page, "w", encoding="utf-8") as f:
+                f.write(bundle["landing_page_html"])
+            print(f"Landing page written to {args.export_landing_page}")
 
     elif cmd == "execution":
         _cmd_campaign_execution(args, registry, brain)
