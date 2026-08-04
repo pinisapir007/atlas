@@ -255,6 +255,27 @@ def test_create_campaign_accepts_a_real_destination_url(tmp_path):
     assert campaign_registry.get_campaign(campaign.id).destination_url == "https://example.com/track/real"
 
 
+def test_success_law_ids_defaults_to_empty_never_fabricated(tmp_path):
+    campaign = Campaign(business_objective="a")
+
+    assert campaign.success_law_ids == []
+
+
+def test_create_campaign_accepts_real_success_law_ids(tmp_path):
+    influencer_registry = _influencer_registry(tmp_path)
+    influencer = _new_influencer(influencer_registry)
+    campaign_registry = _campaign_registry(tmp_path)
+
+    campaign = create_campaign(
+        business_objective="a", category="affiliate", product_offer="KetoDNA", influencer_ids=[influencer.id],
+        influencer_registry=influencer_registry, knowledge=_knowledge(tmp_path), memory=_memory(tmp_path), kpis=_kpis(tmp_path),
+        registry=campaign_registry, success_law_ids=["law-1", "law-2"],
+    )
+
+    assert campaign.success_law_ids == ["law-1", "law-2"]
+    assert campaign_registry.get_campaign(campaign.id).success_law_ids == ["law-1", "law-2"]
+
+
 def test_link_destination_url_attaches_a_real_url_to_an_existing_campaign(tmp_path):
     influencer_registry = _influencer_registry(tmp_path)
     influencer = _new_influencer(influencer_registry)

@@ -54,6 +54,27 @@ class Campaign:
     # Engine bridge creates a campaign (see campaign_advance.py) — never
     # fabricated; "" until a real link is known.
     destination_url: str = ""
+    # The real Brand this campaign operates under, when one exists — added
+    # 2026-08-03, Brand Factory. Set via campaign.registry.link_brand(),
+    # either automatically (brand.factory.create_brand_from_proposal()
+    # links back to the real campaign for the same goal) or explicitly by
+    # the founder. None until a real Brand is created — never fabricated,
+    # the same "" -> real-value-later discipline destination_url already
+    # established.
+    brand_id: str | None = None
+    # Real Success Laws (see atlas.brain.models.SuccessLaw) that were
+    # relevant/considered at the moment this campaign was created —
+    # added 2026-08-03, closing the founder's "Update Success Laws /
+    # improve the next decision" loop. An honest ASSOCIATION, never a
+    # causal claim: this records "these laws were in effect when this
+    # campaign was created," so a later real measured outcome can be
+    # attributed to them as real track record (asset_value.
+    # success_law_lifetime_value()) — the same "aggregate real outcomes,
+    # never claim causation" discipline historical_success_score()
+    # already applies at category level. Set once, at creation time
+    # (opportunity_ranking.relevant_success_laws()), never fabricated or
+    # guessed after the fact.
+    success_law_ids: list[str] = field(default_factory=list)
     influencer_ids: list[str] = field(default_factory=list)
     platform_strategy: str = ""
     content_strategy: str = ""

@@ -67,6 +67,7 @@ def create_campaign(
     success_kpis: list[str] | None = None,
     goal_id: str | None = None,
     destination_url: str = "",
+    success_law_ids: list[str] | None = None,
 ) -> Campaign:
     """Assembles a complete Campaign — the Campaign Intelligence Layer's
     real output, the thing the Decision Engine is meant to eventually
@@ -104,6 +105,7 @@ def create_campaign(
         confidence_score=result["score"],
         goal_id=goal_id,
         destination_url=destination_url,
+        success_law_ids=list(success_law_ids) if success_law_ids else [],
     )
     campaign.learning_history.append(
         {"at": now(), "event": "campaign_created", "confidence": result["score"], "factors_available": result["factors_available"]}
@@ -143,6 +145,18 @@ def link_goal(campaign_id: str, goal_id: str, registry: CampaignRegistry) -> Cam
     afterward rather than forcing every campaign to name a Goal upfront."""
     campaign = registry.get_campaign(campaign_id)
     campaign.goal_id = goal_id
+    registry.save_campaign(campaign)
+    return campaign
+
+
+def link_brand(campaign_id: str, brand_id: str, registry: CampaignRegistry) -> Campaign:
+    """Attaches a real Brand to a campaign created without one — the same
+    direct, explicit pattern link_goal()/link_destination_url() already
+    establish. Called automatically by brand.factory.
+    create_brand_from_proposal() when a real campaign for the same goal
+    already exists, or directly by the founder otherwise."""
+    campaign = registry.get_campaign(campaign_id)
+    campaign.brand_id = brand_id
     registry.save_campaign(campaign)
     return campaign
 
