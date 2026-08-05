@@ -34,6 +34,9 @@ from atlas.brain.resource_discovery_engine import scan_resources
 from atlas.brain.resource_index import ResourceIndex
 from atlas.brain.decision_engine_integration import WAIT, TaskExecutionRequirements, evaluate_task_readiness
 from atlas.brain.business_execution_planning import build_execution_plan
+from atlas.brain.intelligence_engine import collect_intelligence
+from atlas.brain.intelligence_index import IntelligenceIndex
+from atlas.integrations.base import INTELLIGENCE_DOMAINS
 from atlas.integrations.digistore24 import Digistore24Provider
 from atlas.orchestrator.orchestrator import advance_execution, start_execution
 
@@ -554,6 +557,12 @@ def build_parser() -> argparse.ArgumentParser:
     decide_plan.add_argument("--require-resource", action="append", default=[], dest="required_resource_paths", help="a real approved resource path this plan requires (repeatable)")
     decide_plan.add_argument("--estimated-duration-seconds", type=float, default=None, dest="estimated_duration_seconds", help="a real, founder-supplied duration estimate -- omit to leave estimated_execution_time honestly unset")
 
+    intelligence_parser = subparsers.add_parser("intelligence", help="ATLAS Intelligence Engine V1 -- collects, normalizes, and indexes intelligence across market/human_behavior/competitor/product/economic domains. Never generates opportunities, never executes anything.")
+    intelligence_sub = intelligence_parser.add_subparsers(dest="intelligence_command", required=True)
+    intelligence_sub.add_parser("collect", help="run every registered provider (real market intelligence from KnowledgeBase + 4 honest placeholders), report per-provider status, replace the index")
+    intelligence_index_parser = intelligence_sub.add_parser("index", help="query the already-persisted Intelligence Index -- never triggers a new collection")
+    intelligence_index_parser.add_argument("--domain", default=None, choices=sorted(INTELLIGENCE_DOMAINS), help="only show intelligence from this domain")
+
     return parser
 
 
@@ -604,6 +613,8 @@ def main(argv: list[str] | None = None) -> int:
             _cmd_resources(args)
         elif args.command == "decide":
             _cmd_decide(args)
+        elif args.command == "intelligence":
+            _cmd_intelligence(args)
         else:
             _cmd_verb(args.command, args.asset)
     except (KeyError, UnsupportedVerb, ValueError) as exc:
@@ -1374,6 +1385,27 @@ def _cmd_decide(args: argparse.Namespace) -> None:
             print("  Blocking reason(s):")
             for reason in plan.blocking_reasons:
                 print(f"    - {reason}")
+
+
+def _cmd_intelligence(args: argparse.Namespace) -> None:
+    cmd = args.intelligence_command
+    brain = CEOBrain()
+
+    if cmd == "collect":
+        result = collect_intelligence(knowledge=brain.knowledge)
+        print("Provider status:")
+        for provider_name, status in result["provider_status"].items():
+            status_str = f"error: {status['error']}" if status["error"] else f"{status['count']} real item(s)"
+            print(f"  {provider_name}: {status_str}")
+        print(f"Total intelligence collected: {len(result['intelligence'])}")
+    elif cmd == "index":
+        index = IntelligenceIndex()
+        items = index.by_domain(args.domain) if args.domain else index.all_intelligence()
+        if not items:
+            print("0 items in the index -- run 'atlas intelligence collect' first (this command never collects itself).")
+        else:
+            for item in items:
+                print(f"[{item.domain}] {item.subject}\tprovider={item.provider}\tsource={item.source or '-'}\tconfidence={item.confidence if item.confidence is not None else 'unscored'}\t{item.summary}")
 
 
 def _cmd_campaign(args: argparse.Namespace) -> None:

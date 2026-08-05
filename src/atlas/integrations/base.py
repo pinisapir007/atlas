@@ -210,3 +210,77 @@ class ResourceProvider(Protocol):
         nothing was actually checked — the same fail-closed rule every
         other provider Protocol in this codebase already follows."""
         ...
+
+
+# Intelligence Engine V1 (2026-08-05): an explicit, documented, editable
+# set of domains -- the same "open-but-bounded" discipline
+# influencer.models.TEMPLATE_KINDS already established. A new domain is
+# a new string added here, never a new field/dataclass. Human Behavior
+# Intelligence exists ONLY to understand people -- never to manipulate
+# them or to optimize deception. Every field on Intelligence below stays
+# purely observational/descriptive for that domain (a real, cited pain
+# point or motivation, never a "trigger" or "exploit" framing) — a
+# structural, not just documented, boundary this whole engine respects.
+INTELLIGENCE_DOMAINS = {"market", "human_behavior", "competitor", "product", "economic"}
+
+
+@dataclass
+class Intelligence:
+    """A normalized, provider-and-domain-agnostic piece of intelligence
+    (2026-08-05, ATLAS Intelligence Engine V1) — the one shared shape
+    every IntelligenceProvider returns, regardless of domain (a real
+    market Finding and a future real competitor-pricing signal look
+    nothing alike underneath, same as Resource/Opportunity before it).
+    Mirrors their exact "real evidence, honestly incomplete" discipline:
+    `confidence` is None (never a fabricated number) unless a real
+    computation actually produced one, and `raw` always carries the
+    real, unmodified source data a provider's summary was built from.
+
+    Collection only — this object is never generated, only ever
+    normalized from something a provider actually observed. `subject`
+    +`provider` together are this object's real identity (the same
+    "no synthetic id" discipline Resource(path)/Opportunity(external_id)
+    already established, keeping atlas.integrations dependency-free)."""
+
+    provider: str
+    domain: str
+    subject: str
+    summary: str
+    source: str = ""
+    evidence: str = ""
+    market: str = ""
+    confidence: float | None = None
+    collected_at: str = ""
+    raw: dict = field(default_factory=dict)
+    error: str | None = None
+
+
+@runtime_checkable
+class IntelligenceProvider(Protocol):
+    """A real source of intelligence for the Intelligence Engine
+    (atlas.brain.intelligence_engine) — one real class per real
+    intelligence source, each normalizing its own real observations into
+    the same Intelligence shape. FindingsMarketIntelligenceProvider
+    (atlas.brain.market_intelligence_provider) is the first real
+    implementation — it wraps this codebase's own already-real,
+    already-recorded Finding evidence rather than a new external API,
+    which is honest and real without being a new fabricated data source.
+    The Human Behavior/Competitor/Product/Economic placeholders
+    (atlas.integrations.intelligence_provider_placeholders) are honest,
+    structural placeholders — reserved, zero real API calls, the same
+    "no fabrication" discipline every other unbuilt provider in this
+    codebase already follows.
+    """
+
+    name: str
+    domain: str
+
+    def fetch_intelligence(self) -> list[Intelligence] | None:
+        """Real intelligence from this provider, normalized. None means
+        not available right now — no real data source configured, or
+        (for a placeholder) no real implementation exists yet. An empty
+        list is a real, successful check that found nothing (e.g. a real
+        KnowledgeBase with zero Findings yet) — genuinely different from
+        None, the same fail-closed distinction every other provider
+        Protocol in this codebase already makes."""
+        ...
