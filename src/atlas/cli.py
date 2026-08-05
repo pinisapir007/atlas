@@ -36,6 +36,7 @@ from atlas.brain.decision_engine_integration import WAIT, TaskExecutionRequireme
 from atlas.brain.business_execution_planning import build_execution_plan
 from atlas.brain.intelligence_engine import collect_intelligence
 from atlas.brain.intelligence_index import IntelligenceIndex
+from atlas.brain.intelligence_research_framework import build_research_framework
 from atlas.integrations.base import INTELLIGENCE_DOMAINS
 from atlas.integrations.digistore24 import Digistore24Provider
 from atlas.orchestrator.orchestrator import advance_execution, start_execution
@@ -562,6 +563,9 @@ def build_parser() -> argparse.ArgumentParser:
     intelligence_sub.add_parser("collect", help="run every registered provider (real market intelligence from KnowledgeBase + 4 honest placeholders), report per-provider status, replace the index")
     intelligence_index_parser = intelligence_sub.add_parser("index", help="query the already-persisted Intelligence Index -- never triggers a new collection")
     intelligence_index_parser.add_argument("--domain", default=None, choices=sorted(INTELLIGENCE_DOMAINS), help="only show intelligence from this domain")
+
+    research_framework_parser = intelligence_sub.add_parser("research-framework", help="Intelligence Research Framework V1 -- transforms a business goal into a structured set of research questions. Never collects or analyzes intelligence, never fabricates an answer.")
+    research_framework_parser.add_argument("goal", help="the real business goal, e.g. \"Become the world's best Affiliate Marketing business\"")
 
     return parser
 
@@ -1406,6 +1410,28 @@ def _cmd_intelligence(args: argparse.Namespace) -> None:
         else:
             for item in items:
                 print(f"[{item.domain}] {item.subject}\tprovider={item.provider}\tsource={item.source or '-'}\tconfidence={item.confidence if item.confidence is not None else 'unscored'}\t{item.summary}")
+    elif cmd == "research-framework":
+        framework = build_research_framework(args.goal)
+        print(f"Research Framework for: {framework.objective}")
+        print("Success definition -- questions to answer:")
+        for q in framework.success_definition:
+            print(f"  - {q}")
+        print(f"Current world leaders: {framework.current_world_leaders_question}")
+        print("Knowledge gaps:")
+        for g in framework.knowledge_gaps:
+            print(f"  - {g}")
+        print("Research questions:")
+        for rq in framework.research_questions:
+            print(f"  [{rq.domain}] {rq.question}")
+        print(f"Intelligence categories: {', '.join(framework.intelligence_categories)}")
+        print("Required intelligence sources:")
+        for src in framework.required_intelligence_sources:
+            print(f"  [{src.domain}] {src.provider_name}")
+        print("Missing knowledge:")
+        for m in framework.missing_knowledge:
+            print(f"  - {m}")
+        print(f"Research priority: {' -> '.join(framework.research_priority)}")
+        print(f"Completion criteria: {framework.completion_criteria}")
 
 
 def _cmd_campaign(args: argparse.Namespace) -> None:
