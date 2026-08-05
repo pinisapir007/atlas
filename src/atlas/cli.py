@@ -38,6 +38,7 @@ from atlas.brain.intelligence_engine import collect_intelligence
 from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.intelligence_research_framework import build_research_framework
 from atlas.brain.intelligence_workflow import run_intelligence_workflow
+from atlas.brain.success_principles_engine import analyze_success_principles
 from atlas.integrations.base import INTELLIGENCE_DOMAINS
 from atlas.integrations.digistore24 import Digistore24Provider
 from atlas.orchestrator.orchestrator import advance_execution, start_execution
@@ -571,6 +572,8 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_parser = intelligence_sub.add_parser("workflow", help="ATLAS End-to-End Intelligence Workflow V1 -- runs the full 8-stage reasoning cycle (goal -> research framework -> intelligence -> resources -> opportunities -> time -> decision -> execution plan) for one goal/category, and prints the complete reasoning history.")
     workflow_parser.add_argument("goal", help="the real business goal, e.g. \"Become the best Affiliate Marketing business\"")
     workflow_parser.add_argument("category", help="the real category to reason about, e.g. affiliate")
+
+    intelligence_sub.add_parser("success-principles", help="ATLAS Success Principles Engine V1 -- analyzes every real Success Law against real, measured Campaign outcomes and prints a structured set of verified Success Principles. Never a summary, never fabricated -- see analyze_success_principles()'s own docstring.")
 
     return parser
 
@@ -1448,6 +1451,20 @@ def _cmd_intelligence(args: argparse.Namespace) -> None:
             print(f"  next_recommended_action: {stage.next_recommended_action}")
         if result.halted:
             print(f"\nHALTED before the Decision Engine: {result.halted_reason}")
+    elif cmd == "success-principles":
+        report = analyze_success_principles(brain.knowledge, brain.campaigns, brain.memory, brain.kpis)
+        if not report.principles:
+            print("0 Success Principles on record -- run 'atlas brain law add' first (this command never fabricates one).")
+        for p in report.principles:
+            print(f"\nPrinciple: {p.principle}")
+            print(f"  Supporting evidence: {p.supporting_evidence or 'none'}")
+            print(f"  Confidence level: {p.confidence_level if p.confidence_level is not None else 'unmeasured'}")
+            print(f"  Known limitations: {p.known_limitations or 'none'}")
+            print(f"  Conditions for success: {p.conditions_for_success or 'none'}")
+            print(f"  Conditions for failure: {p.conditions_for_failure or 'none'}")
+            print(f"  Recommended implementation: {p.recommended_implementation}")
+            print(f"  Possible improvements: {p.possible_improvements}")
+        print(f"\n{report.closing_question}")
 
 
 def _cmd_campaign(args: argparse.Namespace) -> None:
