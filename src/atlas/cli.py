@@ -37,6 +37,7 @@ from atlas.brain.business_execution_planning import build_execution_plan
 from atlas.brain.intelligence_engine import collect_intelligence
 from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.intelligence_research_framework import build_research_framework
+from atlas.brain.intelligence_workflow import run_intelligence_workflow
 from atlas.integrations.base import INTELLIGENCE_DOMAINS
 from atlas.integrations.digistore24 import Digistore24Provider
 from atlas.orchestrator.orchestrator import advance_execution, start_execution
@@ -566,6 +567,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     research_framework_parser = intelligence_sub.add_parser("research-framework", help="Intelligence Research Framework V1 -- transforms a business goal into a structured set of research questions. Never collects or analyzes intelligence, never fabricates an answer.")
     research_framework_parser.add_argument("goal", help="the real business goal, e.g. \"Become the world's best Affiliate Marketing business\"")
+
+    workflow_parser = intelligence_sub.add_parser("workflow", help="ATLAS End-to-End Intelligence Workflow V1 -- runs the full 8-stage reasoning cycle (goal -> research framework -> intelligence -> resources -> opportunities -> time -> decision -> execution plan) for one goal/category, and prints the complete reasoning history.")
+    workflow_parser.add_argument("goal", help="the real business goal, e.g. \"Become the best Affiliate Marketing business\"")
+    workflow_parser.add_argument("category", help="the real category to reason about, e.g. affiliate")
 
     return parser
 
@@ -1432,6 +1437,17 @@ def _cmd_intelligence(args: argparse.Namespace) -> None:
             print(f"  - {m}")
         print(f"Research priority: {' -> '.join(framework.research_priority)}")
         print(f"Completion criteria: {framework.completion_criteria}")
+    elif cmd == "workflow":
+        result = run_intelligence_workflow(args.goal, args.category, knowledge=brain.knowledge, memory=brain.memory, kpis=brain.kpis)
+        print(f"Intelligence Workflow for '{result.goal}' / category '{result.category}' -- status={result.status}")
+        for stage in result.stages:
+            print(f"\n[{stage.name}]")
+            print(f"  reasoning: {stage.reasoning}")
+            print(f"  confidence: {stage.confidence if stage.confidence is not None else 'unscored'}")
+            print(f"  missing_information: {stage.missing_information or 'none'}")
+            print(f"  next_recommended_action: {stage.next_recommended_action}")
+        if result.halted:
+            print(f"\nHALTED before the Decision Engine: {result.halted_reason}")
 
 
 def _cmd_campaign(args: argparse.Namespace) -> None:
