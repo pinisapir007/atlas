@@ -172,6 +172,21 @@ def test_objective_set_rejects_weights_that_do_not_sum_to_one(tmp_path, monkeypa
     assert BrainMemory().current_strategic_objective() is None
 
 
+def test_allocate_recommends_investing_new_for_a_real_cleared_category(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    from atlas.brain.knowledge import KnowledgeBase
+    from atlas.brain.models import Finding
+
+    kb = KnowledgeBase()
+    kb.save_finding(Finding(source="research", category="affiliate", description="s1", evidence="https://example.com/1"))
+    kb.save_finding(Finding(source="research", category="affiliate", description="s2", evidence="https://example.com/2"))
+
+    main(["brain", "allocate", "affiliate"])
+    out = capsys.readouterr().out
+    assert "ACTION: invest_new" in out
+    assert "gemini" in out and "claude" in out
+
+
 def test_goal_list_shows_horizon(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["brain", "goal", "add", "Test goal", "--horizon", "long"])

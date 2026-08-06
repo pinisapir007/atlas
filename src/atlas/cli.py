@@ -7,6 +7,7 @@ from atlas.assets.creative_agent.agent import CreativeAgent
 from atlas.assets.publishing_gateway.agent import PublishingGatewayAgent
 from atlas.assets.publishing_gateway.store import PublishingQueueStore
 from atlas.assets.recruitment_workforce.agent import RecruitmentAgent
+from atlas.brain.capital_allocation import recommend_allocation
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.confidence import confidence_score, rank_by_confidence
 from atlas.brain.explain import explain_opportunity
@@ -163,6 +164,9 @@ def build_parser() -> argparse.ArgumentParser:
     law_add.add_argument("--evidence-finding", action="append", default=[], dest="evidence_finding_ids", help="a real finding id (see 'atlas brain finding list') this principle is grounded in (repeatable)")
     law_add.add_argument("--model", action="append", default=[], dest="applicable_business_models", help="a business category this principle generalizes to, e.g. affiliate (repeatable)")
     law_sub.add_parser("list", help="list every recorded Success Law")
+
+    allocate_parser = brain_sub.add_parser("allocate", help="Capital Allocation V1 -- real, explained open/strengthen/hold recommendation for a candidate category, across the whole real portfolio")
+    allocate_parser.add_argument("category")
 
     decisions_parser = brain_sub.add_parser("decisions", help="Decision Engine verdict history — full traceability, read-only")
     decisions_sub = decisions_parser.add_subparsers(dest="decisions_command", required=True)
@@ -738,6 +742,22 @@ def _cmd_brain(args: argparse.Namespace) -> None:
             print("\nfull history:")
             for objective in sorted(brain.memory.strategic_objectives(), key=lambda o: o.created_at):
                 print(f"  {objective.id}\t{objective.created_at}\t{objective.description}")
+
+    elif cmd == "allocate":
+        rec = recommend_allocation(
+            args.category, brain.knowledge, brain.memory, brain.kpis,
+            brain.influencers, brain.brands, brain.campaigns,
+            objective=brain.memory.current_strategic_objective(),
+        )
+        print(f"ACTION: {rec.action}")
+        print(f"REASONING: {rec.reasoning}")
+        if rec.best_existing_asset:
+            a = rec.best_existing_asset
+            print(f"BEST EXISTING ASSET: {a.name} ({a.asset_type}, {a.asset_id}) lifetime_value={a.lifetime_value}")
+        if rec.pause_candidates:
+            print(f"PAUSE CANDIDATES: {[d['goal_id'] for d in rec.pause_candidates]}")
+        print(rec.ai_providers_note)
+        print(f"objective_id={rec.objective_id}")
 
     elif cmd == "task":
         if args.task_command == "add":
