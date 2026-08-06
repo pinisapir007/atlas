@@ -13,6 +13,7 @@ from atlas.brain.editorial_review_advance import advance_editorial_review
 from atlas.brain.publishing_gateway_advance import advance_publishing_gateway
 from atlas.brain.improvement import propose_improvements
 from atlas.brain.intake import absorb_opportunities
+from atlas.brain.intelligence_cycle_advance import advance_intelligence_cycle
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.kpi_intake import record_revenue
@@ -90,6 +91,9 @@ class CEOBrain:
         self.kpis = KPIRegistry(self.memory)
         self.delegator = Delegator(self.memory)
         self.monitor = Monitor()
+        # In-memory only, never persisted -- see intelligence_cycle_advance.py
+        # for why no new durable store was added in this pass.
+        self.last_intelligence_workflow_results: list = []
 
     def add_goal(
         self,
@@ -131,6 +135,14 @@ class CEOBrain:
             self.memory.save_task(opportunity_task)
 
         self._decide_and_apply()
+
+        # Runs the real, unmodified 8-stage intelligence workflow for every
+        # Goal the Decision Engine step just above created (or created on an
+        # earlier tick) -- the minimum bridge connecting the engine layer
+        # (Intelligence/Research/Resource/Opportunity/Time/Execution
+        # Planning) to the automatic tick loop. Read-only: does not create
+        # or dispatch anything. See intelligence_cycle_advance.py.
+        self.last_intelligence_workflow_results = advance_intelligence_cycle(self.memory, self.knowledge, self.kpis)
 
         for continuation_task in advance_recruitment_pipeline(self.memory.tasks(), self.registry, self.memory):
             self.memory.save_task(continuation_task)
@@ -253,7 +265,9 @@ class CEOBrain:
         # zero-cost, no privileged access, exactly like a human editing
         # Goal.priority/status by hand today. Always logged so it's visible
         # in the next report, never silent.
-        decisions = self.strategist.reallocate(self.memory.goals(), self.kpis, self.memory.log())
+        decisions = self.strategist.reallocate(
+            self.memory.goals(), self.kpis, self.memory.log(), objective=self.memory.current_strategic_objective()
+        )
         for decision in decisions:
             goal = self.memory.get_goal(decision["goal_id"])
             goal.priority = decision["new_priority"]

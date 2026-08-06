@@ -1,7 +1,7 @@
 import pytest
 
 from atlas.brain.memory import BrainMemory
-from atlas.brain.models import Goal, Proposal, Task
+from atlas.brain.models import Goal, Proposal, StrategicObjective, Task
 
 
 class InMemoryBrainStore:
@@ -102,3 +102,70 @@ def test_write_is_atomic_and_leaves_no_stray_temp_file(tmp_path):
 
     assert path.exists()
     assert not path.with_name(path.name + ".tmp").exists()
+
+
+def test_current_strategic_objective_is_none_before_any_is_set(tmp_path):
+    memory = BrainMemory(tmp_path / "brain.json")
+    assert memory.current_strategic_objective() is None
+    assert memory.strategic_objectives() == []
+
+
+def test_save_and_read_back_a_strategic_objective(tmp_path):
+    memory = BrainMemory(tmp_path / "brain.json")
+    objective = StrategicObjective(
+        description="first $1,000", target_metric="revenue", target_value=1000.0,
+        cash_flow_weight=0.9, strategic_value_weight=0.1,
+    )
+    memory.save_strategic_objective(objective)
+
+    current = memory.current_strategic_objective()
+    assert current.id == objective.id
+    assert current.description == "first $1,000"
+    assert memory.strategic_objectives() == [objective]
+
+
+def test_current_strategic_objective_is_the_most_recently_created_one(tmp_path):
+    memory = BrainMemory(tmp_path / "brain.json")
+    first = StrategicObjective(
+        description="first $1,000", target_metric="revenue", target_value=1000.0,
+        cash_flow_weight=1.0, strategic_value_weight=0.0,
+    )
+    memory.save_strategic_objective(first)
+    second = StrategicObjective(
+        description="sustainable $10,000/month", target_metric="revenue", target_value=10000.0,
+        cash_flow_weight=0.2, strategic_value_weight=0.8,
+    )
+    memory.save_strategic_objective(second)
+
+    assert memory.current_strategic_objective().id == second.id
+    assert len(memory.strategic_objectives()) == 2  # full history retained, nothing overwritten
+
+
+def test_save_strategic_objective_rejects_weights_that_do_not_sum_to_one(tmp_path):
+    memory = BrainMemory(tmp_path / "brain.json")
+    bad = StrategicObjective(
+        description="broken", target_metric="revenue", target_value=1000.0,
+        cash_flow_weight=0.9, strategic_value_weight=0.9,
+    )
+    with pytest.raises(ValueError, match="must sum to 1.0"):
+        memory.save_strategic_objective(bad)
+    assert memory.current_strategic_objective() is None
+
+
+def test_reads_a_real_brain_json_saved_before_strategic_objective_existed(tmp_path):
+    # Tolerates a store saved before this key existed -- the same
+    # no-migration-needed discipline knowledge.json's success_laws
+    # addition already established.
+    path = tmp_path / "brain.json"
+    memory = BrainMemory(path)
+    memory.save_goal(Goal(description="pre-existing goal"))
+
+    import json
+
+    raw = json.loads(path.read_text())
+    del raw["strategic_objectives"]
+    path.write_text(json.dumps(raw))
+
+    memory2 = BrainMemory(path)
+    assert memory2.current_strategic_objective() is None
+    assert memory2.goals()[0].description == "pre-existing goal"

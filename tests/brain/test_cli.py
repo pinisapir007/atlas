@@ -128,6 +128,50 @@ def test_goal_add_defaults_to_short_horizon_and_empty_estimate(tmp_path, monkeyp
     assert goal.founder_estimate == {}
 
 
+def test_objective_show_before_any_is_set(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    main(["brain", "objective", "show"])
+    out = capsys.readouterr().out
+    assert "no strategic objective set" in out
+
+
+def test_objective_set_and_show(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    main([
+        "brain", "objective", "set",
+        "first $1,000, fastest and safest", "revenue", "1000",
+        "--cash-flow-weight", "0.9", "--strategic-value-weight", "0.1",
+    ])
+    out = capsys.readouterr().out
+    assert "cash_flow=0.9" in out
+    objective_id = out.strip().split("\t")[0]
+
+    current = BrainMemory().current_strategic_objective()
+    assert current.id == objective_id
+    assert current.description == "first $1,000, fastest and safest"
+    assert current.cash_flow_weight == 0.9
+    assert current.strategic_value_weight == 0.1
+
+    main(["brain", "objective", "show"])
+    out = capsys.readouterr().out
+    assert f"CURRENT: {objective_id}" in out
+
+
+def test_objective_set_rejects_weights_that_do_not_sum_to_one(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    main([
+        "brain", "objective", "set",
+        "broken", "revenue", "1000",
+        "--cash-flow-weight", "0.9", "--strategic-value-weight", "0.9",
+    ])
+    out = capsys.readouterr().out
+    assert "FAILURE" in out
+    assert BrainMemory().current_strategic_objective() is None
+
+
 def test_goal_list_shows_horizon(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["brain", "goal", "add", "Test goal", "--horizon", "long"])
@@ -693,7 +737,7 @@ def test_campaign_execution_full_lifecycle_via_cli(tmp_path, monkeypatch, capsys
     main(["influencer", "create", "--name", "Mira", "--category", "affiliate"])
     influencer_id = capsys.readouterr().out.strip().split("\t")[0]
     for kind in ("title", "description", "hook", "cta", "caption_template"):
-        main(["influencer", "template", "add", influencer_id, "--kind", kind, "--name", f"{kind}-1", "--content", f"real {kind} about {{product_name}}"])
+        main(["influencer", "template", "add", influencer_id, "--kind", kind, "--name", f"{kind}-1", "--content", f"real {kind} about {{product_name}} -- AI-curated content. (affiliate link)"])
         capsys.readouterr()
     main(["influencer", "asset", "attach", influencer_id, "--type", "image", "--reference", "https://example.com/real-asset.jpg"])
     capsys.readouterr()
@@ -848,7 +892,7 @@ def test_campaign_revenue_record_unblocks_check_measurement_end_to_end(tmp_path,
     main(["influencer", "list"])
     influencer_id = capsys.readouterr().out.strip().split("\t")[0]
     for kind in ("title", "description", "hook", "cta", "caption_template"):
-        main(["influencer", "template", "add", influencer_id, "--kind", kind, "--name", f"{kind}-1", "--content", f"real {kind} about {{product_name}}"])
+        main(["influencer", "template", "add", influencer_id, "--kind", kind, "--name", f"{kind}-1", "--content", f"real {kind} about {{product_name}} -- AI-curated content. (affiliate link)"])
         capsys.readouterr()
     main(["influencer", "asset", "attach", influencer_id, "--type", "image", "--reference", "https://example.com/real-asset.jpg"])
     capsys.readouterr()

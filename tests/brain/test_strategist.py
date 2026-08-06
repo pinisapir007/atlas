@@ -1,6 +1,6 @@
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.memory import BrainMemory
-from atlas.brain.models import Goal
+from atlas.brain.models import Goal, StrategicObjective
 from atlas.brain.strategist import SimpleStrategist
 
 
@@ -120,3 +120,60 @@ def test_paused_goals_excluded_from_scoring(tmp_path):
     assert decisions[active_a.id]["bucket_size"] == 2
     assert decisions[active_a.id]["new_priority"] == 1
     assert decisions[active_b.id]["new_priority"] == 2
+
+
+def test_the_same_two_goals_rank_differently_under_two_different_real_objectives(tmp_path):
+    # The real M2 success criterion: identical founder_estimate on both
+    # goals, yet the real, current StrategicObjective alone flips which
+    # one ranks first -- proof the company's current phase actually
+    # reweights the decision, not just documents it.
+    kpis = _kpis(tmp_path)
+    fast_cash_no_future = Goal(
+        description="fast cash, no lasting value",
+        horizon="short",
+        founder_estimate={
+            "expected_revenue": 5000.0, "required_investment": 100.0, "time_to_first_profit": 3.0,
+            "scalability": 0.0, "automation_potential": 0.0, "long_term_strategic_value": 0.0,
+        },
+    )
+    slow_but_scalable = Goal(
+        description="slow now, scalable later",
+        horizon="short",
+        founder_estimate={
+            "expected_revenue": 100.0, "required_investment": 5000.0, "time_to_first_profit": 180.0,
+            "scalability": 1.0, "automation_potential": 1.0, "long_term_strategic_value": 1.0,
+        },
+    )
+
+    first_dollar_objective = StrategicObjective(
+        description="first $1,000, fastest and safest", target_metric="revenue", target_value=1000.0,
+        cash_flow_weight=1.0, strategic_value_weight=0.0,
+    )
+    decisions_survival = {
+        d["goal_id"]: d
+        for d in SimpleStrategist().reallocate([fast_cash_no_future, slow_but_scalable], kpis, [], objective=first_dollar_objective)
+    }
+    assert decisions_survival[fast_cash_no_future.id]["new_priority"] == 1
+    assert decisions_survival[slow_but_scalable.id]["new_priority"] == 2
+
+    scale_objective = StrategicObjective(
+        description="sustainable $10,000/month", target_metric="revenue", target_value=10000.0,
+        cash_flow_weight=0.0, strategic_value_weight=1.0,
+    )
+    decisions_scale = {
+        d["goal_id"]: d
+        for d in SimpleStrategist().reallocate([fast_cash_no_future, slow_but_scalable], kpis, [], objective=scale_objective)
+    }
+    assert decisions_scale[slow_but_scalable.id]["new_priority"] == 1
+    assert decisions_scale[fast_cash_no_future.id]["new_priority"] == 2
+
+
+def test_reallocate_still_defaults_to_the_legacy_rule_when_no_objective_is_passed(tmp_path):
+    kpis = _kpis(tmp_path)
+    strong = Goal(description="strong", founder_estimate={"expected_revenue": 1000.0})
+    weak = Goal(description="weak", founder_estimate={"expected_revenue": 100.0})
+
+    decisions = {d["goal_id"]: d for d in SimpleStrategist().reallocate([strong, weak], kpis, [])}
+
+    assert decisions[strong.id]["objective_id"] is None
+    assert "no strategic objective set" in decisions[strong.id]["reason"]

@@ -1,15 +1,21 @@
 from typing import Protocol
 
 from atlas.brain.kpi import KPIRegistry
-from atlas.brain.models import Goal
-from atlas.brain.scoring import score_cash_flow, score_strategic_value
+from atlas.brain.models import Goal, StrategicObjective
+from atlas.brain.scoring import blended_score, score_cash_flow, score_strategic_value
 from atlas.brain.valuation import ALL_CRITERIA, blended
 
 MIN_STAGNATION_SAMPLE = 3
 
 
 class Strategist(Protocol):
-    def reallocate(self, goals: list[Goal], kpis: KPIRegistry, log: list[dict]) -> list[dict]: ...
+    def reallocate(
+        self,
+        goals: list[Goal],
+        kpis: KPIRegistry,
+        log: list[dict],
+        objective: StrategicObjective | None = None,
+    ) -> list[dict]: ...
 
 
 class SimpleStrategist:
@@ -32,25 +38,36 @@ class SimpleStrategist:
     Never mutates a Goal or calls memory/registry — returns decisions for the
     caller (CEOBrain) to apply and log. Emits a decision only when it would
     actually change the goal's priority or status: since scoring is a pure
-    function of (goals, kpis), identical inputs across two calls compute the
-    same rank, which already matches what was applied last time, so nothing
-    new is emitted. This is what prevents thrash without needing to inspect
-    past decisions at all.
+    function of (goals, kpis, objective), identical inputs across two calls
+    compute the same rank, which already matches what was applied last time,
+    so nothing new is emitted. This is what prevents thrash without needing
+    to inspect past decisions at all.
+
+    `objective` (2026-08-06, Strategic Objective V1): the real ranking key
+    is now scoring.blended_score, which reproduces this exact class's
+    original fixed rule (short horizon -> cash flow only, long -> strategic
+    value only) when `objective` is None -- the honest default before any
+    StrategicObjective has ever been set. Passing a real objective is what
+    makes the company's current phase actually reweight ranking, not just
+    document it.
     """
 
-    def reallocate(self, goals: list[Goal], kpis: KPIRegistry, log: list[dict]) -> list[dict]:
+    def reallocate(
+        self,
+        goals: list[Goal],
+        kpis: KPIRegistry,
+        log: list[dict],
+        objective: StrategicObjective | None = None,
+    ) -> list[dict]:
         active = [g for g in goals if g.status == "active"]
         scored = [g for g in active if _has_any_input(g, kpis)]
 
         decisions: list[dict] = []
-        for horizon, score_fn, other_fn in (
-            ("short", score_cash_flow, score_strategic_value),
-            ("long", score_strategic_value, score_cash_flow),
-        ):
+        for horizon in ("short", "long"):
             bucket = [g for g in scored if g.horizon == horizon]
             if not bucket:
                 continue
-            ranked = sorted(bucket, key=lambda g: score_fn(g, active, kpis), reverse=True)
+            ranked = sorted(bucket, key=lambda g: blended_score(g, active, kpis, objective), reverse=True)
             bucket_size = len(ranked)
             for rank, goal in enumerate(ranked, start=1):
                 decision = self._decide(
@@ -58,8 +75,9 @@ class SimpleStrategist:
                     rank,
                     bucket_size,
                     horizon,
-                    cash_flow_score=score_fn(goal, active, kpis) if horizon == "short" else other_fn(goal, active, kpis),
-                    strategic_value_score=other_fn(goal, active, kpis) if horizon == "short" else score_fn(goal, active, kpis),
+                    cash_flow_score=score_cash_flow(goal, active, kpis),
+                    strategic_value_score=score_strategic_value(goal, active, kpis),
+                    objective=objective,
                     kpis=kpis,
                 )
                 if decision is not None:
@@ -74,6 +92,7 @@ class SimpleStrategist:
         horizon: str,
         cash_flow_score: float,
         strategic_value_score: float,
+        objective: StrategicObjective | None,
         kpis: KPIRegistry,
     ) -> dict | None:
         new_priority = rank
@@ -87,6 +106,7 @@ class SimpleStrategist:
             return None
 
         reason = f"ranked {rank}/{bucket_size} in {horizon}-horizon cohort"
+        reason += f" under objective {objective.id!r} ({objective.description!r})" if objective else " (no strategic objective set — legacy per-horizon rule)"
         if new_status == "paused":
             reason += "; paused — bottom of cohort with no measured revenue improvement over its last 3 readings"
 
@@ -102,6 +122,7 @@ class SimpleStrategist:
             "new_status": new_status,
             "cash_flow_score": cash_flow_score,
             "strategic_value_score": strategic_value_score,
+            "objective_id": objective.id if objective else None,
             "reason": reason,
         }
 

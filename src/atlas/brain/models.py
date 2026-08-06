@@ -44,6 +44,44 @@ class Goal:
 
 
 @dataclass
+class StrategicObjective:
+    """The company's current strategic phase (2026-08-06, Strategic
+    Objective V1) — the missing layer Strategist's scoring previously
+    had no notion of. Before this existed, score_cash_flow/
+    score_strategic_value were blended by a fixed rule tied only to a
+    Goal's own `horizon` (short=100% cash flow, long=100% strategic
+    value) — the same evidence produced the same decision regardless
+    of what the company was actually trying to achieve right now.
+
+    `cash_flow_weight`/`strategic_value_weight` (each 0.0-1.0, must
+    sum to ~1.0 — validated at save time, never silently normalized)
+    are the real, editable expression of a phase: an early "first
+    $1,000, fastest, safest" objective weights cash flow heavily; a
+    later "sustainable $10,000/month" objective weights scalability/
+    automation/long-term value instead. `target_metric`/`target_value`
+    are open, honest facts about the goal itself (e.g. "revenue",
+    1000.0) — never enforced against a closed set, the same
+    open-string discipline Finding.category/Task.category already
+    establish.
+
+    Never mutated or deleted once saved — setting a new objective is a
+    new record, and the current one is simply the most recently
+    created (see BrainMemory.current_strategic_objective), the same
+    "recompute fresh from the latest real fact" discipline the
+    Decision Engine already applies rather than a separately-tracked,
+    driftable "current pointer" field.
+    """
+
+    description: str
+    target_metric: str
+    target_value: float
+    cash_flow_weight: float
+    strategic_value_weight: float
+    id: str = field(default_factory=lambda: new_id("objective"))
+    created_at: str = field(default_factory=now)
+
+
+@dataclass
 class Task:
     """One unit of work the brain plans, prioritizes, risk-gates, and delegates."""
 

@@ -1,7 +1,7 @@
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.memory import BrainMemory
-from atlas.brain.models import Goal
-from atlas.brain.scoring import score_cash_flow, score_strategic_value
+from atlas.brain.models import Goal, StrategicObjective
+from atlas.brain.scoring import blended_score, score_cash_flow, score_strategic_value
 
 
 def _kpis(tmp_path) -> KPIRegistry:
@@ -95,3 +95,50 @@ def test_score_reflects_measured_kpi_over_stale_founder_estimate(tmp_path):
     cohort = [optimistic_but_flat, modest_but_growing]
 
     assert score_cash_flow(modest_but_growing, cohort, kpis) > score_cash_flow(optimistic_but_flat, cohort, kpis)
+
+
+def test_blended_score_with_no_objective_reproduces_the_legacy_per_horizon_rule(tmp_path):
+    kpis = _kpis(tmp_path)
+    short_goal = Goal(
+        description="short",
+        horizon="short",
+        founder_estimate={"expected_revenue": 1000.0, "scalability": 0.1},
+    )
+    cohort = [short_goal]
+
+    assert blended_score(short_goal, cohort, kpis, objective=None) == score_cash_flow(short_goal, cohort, kpis)
+
+    long_goal = Goal(
+        description="long",
+        horizon="long",
+        founder_estimate={"expected_revenue": 1000.0, "scalability": 0.1},
+    )
+    cohort_long = [long_goal]
+    assert blended_score(long_goal, cohort_long, kpis, objective=None) == score_strategic_value(long_goal, cohort_long, kpis)
+
+
+def test_blended_score_with_a_real_objective_blends_both_scores_by_its_real_weights(tmp_path):
+    kpis = _kpis(tmp_path)
+    cash_heavy = Goal(
+        description="cash heavy",
+        horizon="short",
+        founder_estimate={"expected_revenue": 1000.0, "scalability": 0.0, "automation_potential": 0.0, "long_term_strategic_value": 0.0},
+    )
+    strategic_heavy = Goal(
+        description="strategic heavy",
+        horizon="short",
+        founder_estimate={"expected_revenue": 0.0, "scalability": 1.0, "automation_potential": 1.0, "long_term_strategic_value": 1.0},
+    )
+    cohort = [cash_heavy, strategic_heavy]
+
+    cash_first_objective = StrategicObjective(
+        description="first $1,000", target_metric="revenue", target_value=1000.0,
+        cash_flow_weight=1.0, strategic_value_weight=0.0,
+    )
+    assert blended_score(cash_heavy, cohort, kpis, cash_first_objective) > blended_score(strategic_heavy, cohort, kpis, cash_first_objective)
+
+    scale_objective = StrategicObjective(
+        description="sustainable scale", target_metric="revenue", target_value=10000.0,
+        cash_flow_weight=0.0, strategic_value_weight=1.0,
+    )
+    assert blended_score(strategic_heavy, cohort, kpis, scale_objective) > blended_score(cash_heavy, cohort, kpis, scale_objective)

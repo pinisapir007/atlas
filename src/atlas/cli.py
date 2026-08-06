@@ -15,7 +15,7 @@ from atlas.brain.opportunity_ranking import explain_opportunity_subject, rank_op
 from atlas.brain.portfolio import portfolio_entries, rank_portfolio
 from atlas.brain.console import build_console_view, format_console_view
 from atlas.brain.kpi_intake import record_manual_cost, record_manual_refund, record_manual_revenue, record_manual_settlement
-from atlas.brain.models import Finding, SuccessLaw, Task
+from atlas.brain.models import Finding, StrategicObjective, SuccessLaw, Task
 from atlas.core.registry import Registry, UnsupportedVerb, VERBS
 from atlas.app import run_app
 from atlas.brand.factory import create_brand_from_proposal
@@ -39,6 +39,8 @@ from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.intelligence_research_framework import build_research_framework
 from atlas.brain.intelligence_workflow import run_intelligence_workflow
 from atlas.brain.success_principles_engine import analyze_success_principles
+from atlas.brain.claude_executive import send_task as claude_send_task
+from atlas.integrations.claude_provider import ClaudeCLIError
 from atlas.integrations.base import INTELLIGENCE_DOMAINS
 from atlas.integrations.digistore24 import Digistore24Provider
 from atlas.orchestrator.orchestrator import advance_execution, start_execution
@@ -78,6 +80,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--strategic-value", type=float, default=None, dest="long_term_strategic_value", help="founder estimate: 0.0-1.0"
     )
     goal_sub.add_parser("list", help="list goals")
+
+    objective_parser = brain_sub.add_parser(
+        "objective", help="manage the company's current Strategic Objective -- the real phase that reweights Goal ranking"
+    )
+    objective_sub = objective_parser.add_subparsers(dest="objective_command", required=True)
+    objective_set = objective_sub.add_parser("set", help="set a new current strategic objective")
+    objective_set.add_argument("description", help='e.g. "first $1,000, fastest and safest"')
+    objective_set.add_argument("target_metric", help='e.g. "revenue"')
+    objective_set.add_argument("target_value", type=float)
+    objective_set.add_argument("--cash-flow-weight", type=float, required=True, help="0.0-1.0")
+    objective_set.add_argument("--strategic-value-weight", type=float, required=True, help="0.0-1.0, must sum to 1.0 with --cash-flow-weight")
+    objective_sub.add_parser("show", help="show the real current strategic objective, and its full history")
 
     task_parser = brain_sub.add_parser("task", help="manage tasks")
     task_sub = task_parser.add_subparsers(dest="task_command", required=True)
@@ -575,6 +589,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     intelligence_sub.add_parser("success-principles", help="ATLAS Success Principles Engine V1 -- analyzes every real Success Law against real, measured Campaign outcomes and prints a structured set of verified Success Principles. Never a summary, never fabricated -- see analyze_success_principles()'s own docstring.")
 
+    claude_parser = subparsers.add_parser("claude", help="ATLAS <-> Claude Executive Connection V1 -- the first real connection to a real executive, via the already-installed claude CLI in headless mode.")
+    claude_sub = claude_parser.add_subparsers(dest="claude_command", required=True)
+    claude_send_task_parser = claude_sub.add_parser("send-task", help="Send one real task to Claude via the real claude CLI, parse the real structured response, record the interaction, and report success or failure.")
+    claude_send_task_parser.add_argument("task", help="the real task/prompt to send to Claude")
+
     return parser
 
 
@@ -627,6 +646,8 @@ def main(argv: list[str] | None = None) -> int:
             _cmd_decide(args)
         elif args.command == "intelligence":
             _cmd_intelligence(args)
+        elif args.command == "claude":
+            _cmd_claude(args)
         else:
             _cmd_verb(args.command, args.asset)
     except (KeyError, UnsupportedVerb, ValueError) as exc:
@@ -692,6 +713,31 @@ def _cmd_brain(args: argparse.Namespace) -> None:
                 print(
                     f"{goal.id}\t{goal.status}\thorizon={goal.horizon}\tpriority={goal.priority}\t{goal.description}"
                 )
+
+    elif cmd == "objective":
+        if args.objective_command == "set":
+            try:
+                objective = StrategicObjective(
+                    description=args.description,
+                    target_metric=args.target_metric,
+                    target_value=args.target_value,
+                    cash_flow_weight=args.cash_flow_weight,
+                    strategic_value_weight=args.strategic_value_weight,
+                )
+                brain.memory.save_strategic_objective(objective)
+            except ValueError as exc:
+                print(f"FAILURE: {exc}")
+                return
+            print(f"{objective.id}\t{objective.description}\tcash_flow={objective.cash_flow_weight}\tstrategic_value={objective.strategic_value_weight}")
+        else:
+            current = brain.memory.current_strategic_objective()
+            if current is None:
+                print("no strategic objective set -- Goals rank by the legacy per-horizon rule")
+            else:
+                print(f"CURRENT: {current.id}\t{current.description}\ttarget={current.target_metric}={current.target_value}\tcash_flow={current.cash_flow_weight}\tstrategic_value={current.strategic_value_weight}")
+            print("\nfull history:")
+            for objective in sorted(brain.memory.strategic_objectives(), key=lambda o: o.created_at):
+                print(f"  {objective.id}\t{objective.created_at}\t{objective.description}")
 
     elif cmd == "task":
         if args.task_command == "add":
@@ -1465,6 +1511,18 @@ def _cmd_intelligence(args: argparse.Namespace) -> None:
             print(f"  Recommended implementation: {p.recommended_implementation}")
             print(f"  Possible improvements: {p.possible_improvements}")
         print(f"\n{report.closing_question}")
+
+
+def _cmd_claude(args: argparse.Namespace) -> None:
+    cmd = args.claude_command
+    if cmd == "send-task":
+        try:
+            result = claude_send_task(args.task)
+        except ClaudeCLIError as exc:
+            print(f"FAILURE: {exc}")
+            return
+        print(f"SUCCESS (session={result.session_id}, {result.duration_ms}ms, ${result.total_cost_usd:.4f}, recorded as {result.id})")
+        print(result.result)
 
 
 def _cmd_campaign(args: argparse.Namespace) -> None:

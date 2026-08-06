@@ -2,10 +2,10 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from atlas.brain.models import Goal, Proposal, Task
+from atlas.brain.models import Goal, Proposal, StrategicObjective, Task
 from atlas.brain.store import BrainStore, JSONFileStore
 
-_EMPTY = {"goals": {}, "tasks": {}, "proposals": {}, "kpis": {}, "log": []}
+_EMPTY = {"goals": {}, "tasks": {}, "proposals": {}, "kpis": {}, "log": [], "strategic_objectives": {}}
 
 
 class BrainMemory:
@@ -27,7 +27,13 @@ class BrainMemory:
 
     def _read(self) -> dict:
         data = self._store.read()
-        return data if data is not None else json.loads(json.dumps(_EMPTY))
+        if data is None:
+            return json.loads(json.dumps(_EMPTY))
+        # Tolerates a real brain.json saved before StrategicObjective
+        # existed -- the same no-migration-needed discipline
+        # knowledge.json's success_laws addition already established.
+        data.setdefault("strategic_objectives", {})
+        return data
 
     def _write(self, data: dict) -> None:
         self._store.write(data)
@@ -92,3 +98,33 @@ class BrainMemory:
 
     def log(self) -> list[dict]:
         return self._read()["log"]
+
+    def save_strategic_objective(self, objective: StrategicObjective) -> None:
+        """Records a new current strategic objective. Never mutates or
+        replaces a prior one in place -- full history is kept, the
+        same "a changed verdict is a new record" discipline
+        DecisionLog already applies. Fail-closed: rejects a real
+        weight configuration that doesn't actually describe a
+        trade-off (weights must sum to ~1.0), rather than silently
+        normalizing a founder's mistake into something else."""
+        total = objective.cash_flow_weight + objective.strategic_value_weight
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(
+                f"cash_flow_weight + strategic_value_weight must sum to 1.0, got {total}"
+            )
+        data = self._read()
+        data["strategic_objectives"][objective.id] = asdict(objective)
+        self._write(data)
+
+    def strategic_objectives(self) -> list[StrategicObjective]:
+        return [StrategicObjective(**o) for o in self._read()["strategic_objectives"].values()]
+
+    def current_strategic_objective(self) -> StrategicObjective | None:
+        """The real current objective -- simply the most recently
+        created one, never a separately-tracked pointer that could
+        drift out of sync. None means no objective has ever been set,
+        the honest default (never a fabricated one)."""
+        objectives = self.strategic_objectives()
+        if not objectives:
+            return None
+        return max(objectives, key=lambda o: o.created_at)
