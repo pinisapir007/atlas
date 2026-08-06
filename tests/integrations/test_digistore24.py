@@ -88,20 +88,60 @@ def test_verify_connection_sends_the_real_auth_header_and_parses_the_response(mo
     assert sent_request.full_url == "https://www.digistore24.com/api/call/getUserInfo"
 
 
-def test_fetch_recent_sales_returns_the_real_data_list_unmodified(monkeypatch):
+def test_fetch_recent_sales_returns_the_real_purchase_list_unmodified(monkeypatch):
+    # Real envelope shape, live-verified 2026-08-06: `data` is a
+    # pagination envelope, not the list itself -- the real list is
+    # nested under data['purchase_list'].
     monkeypatch.setenv("DIGISTORE24_API_KEY", "real-test-key")
     real_purchases = [{"purchase_id": "12345", "amount": "49.00"}]
-    with patch("urllib.request.urlopen", return_value=_FakeResponse(200, {"result": "ok", "data": real_purchases})):
+    real_envelope = {
+        "result": "ok",
+        "data": {
+            "from": "2026-08-05 00:00:00", "to": "2026-08-06 19:29:22",
+            "item_count": "1", "page_size": 500, "page_no": 1, "page_count": 1,
+            "purchase_list": real_purchases,
+        },
+    }
+    with patch("urllib.request.urlopen", return_value=_FakeResponse(200, real_envelope)):
         sales = Digistore24Provider().fetch_recent_sales()
 
     assert sales == real_purchases  # passed through exactly as the real API sent it, never remapped/renamed
 
 
-def test_fetch_recent_sales_raises_when_the_response_has_no_real_data_list(monkeypatch):
+def test_fetch_recent_sales_raises_when_the_response_has_no_real_purchase_list(monkeypatch):
     monkeypatch.setenv("DIGISTORE24_API_KEY", "real-test-key")
     with patch("urllib.request.urlopen", return_value=_FakeResponse(200, {"result": "ok"})):
-        with pytest.raises(Digistore24APIError, match="no real 'data' list"):
+        with pytest.raises(Digistore24APIError, match="no real 'data.purchase_list' list"):
             Digistore24Provider().fetch_recent_sales()
+
+
+def test_fetch_recent_sales_raises_when_data_is_the_old_wrongly_assumed_bare_list_shape(monkeypatch):
+    # Regression guard for the real, live-corrected bug: a bare list
+    # under 'data' (the original, wrong assumption) must not silently
+    # be accepted as if it were the real envelope shape.
+    monkeypatch.setenv("DIGISTORE24_API_KEY", "real-test-key")
+    with patch("urllib.request.urlopen", return_value=_FakeResponse(200, {"result": "ok", "data": [{"purchase_id": "1"}]})):
+        with pytest.raises(Digistore24APIError, match="no real 'data.purchase_list' list"):
+            Digistore24Provider().fetch_recent_sales()
+
+
+def test_fetch_recent_sales_returns_a_real_empty_list_when_the_account_has_no_purchases(monkeypatch):
+    # The real, live-observed state of this account, 2026-08-06: zero
+    # purchases ever, across its full real range -- a genuine, honest
+    # empty result, not a failure.
+    monkeypatch.setenv("DIGISTORE24_API_KEY", "real-test-key")
+    real_envelope = {
+        "result": "ok",
+        "data": {
+            "from": "2020-01-01 00:00:00", "to": "2026-08-06 23:59:59",
+            "item_count": "0", "page_size": 500, "page_no": 1, "page_count": 0,
+            "purchase_list": [],
+        },
+    }
+    with patch("urllib.request.urlopen", return_value=_FakeResponse(200, real_envelope)):
+        sales = Digistore24Provider().fetch_recent_sales()
+
+    assert sales == []
 
 
 def test_list_marketplace_entries_returns_none_when_no_api_key_configured(monkeypatch):

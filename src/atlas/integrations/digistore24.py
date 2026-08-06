@@ -126,24 +126,39 @@ class Digistore24Provider:
 
     def fetch_recent_sales(self) -> list[dict] | None:
         """Real call to `listPurchases`. Returns the API's own real
-        records exactly as it sends them (no renamed/remapped fields) —
-        this integration hasn't yet made one real call to confirm the
-        exact per-purchase field names, so inventing a normalized shape
-        now would be exactly the fabrication this codebase's fail-closed
-        rule exists to prevent. Once verify_connection()/a first real call
-        confirms the envelope, normalizing these into ATLAS's own shape is
-        the natural next increment — not done here. None means no
-        credential configured; any call that's attempted but fails raises
-        Digistore24APIError rather than returning None, so a real failure
-        is never indistinguishable from "not configured."
+        per-purchase records exactly as it sends them (no renamed/
+        remapped fields) — the exact per-purchase field names (amount,
+        date, product, ...) still haven't been observed against a real
+        sale (this account's real purchase history is genuinely empty,
+        confirmed 2026-08-06 across its full real range), so inventing a
+        normalized shape now would still be exactly the fabrication this
+        codebase's fail-closed rule exists to prevent.
+
+        The response *envelope* itself IS now real and live-verified
+        (2026-08-06, first real authenticated call ever made against
+        this integration): `data` is not the sales list directly — it's
+        a pagination envelope (`from`, `to`, `item_count`, `page_size`,
+        `page_no`, `page_count`) with the real list nested under
+        `data['purchase_list']`. The original assumption that `data`
+        itself was the list was a real, live-corrected bug, the same
+        "guessing beats leaving it honestly unbuilt, except when the
+        guess is later proven wrong by a real call" lesson `_BASE_URL`
+        already taught this module once before.
+
+        None means no credential configured; any call that's attempted
+        but fails raises Digistore24APIError rather than returning None,
+        so a real failure is never indistinguishable from "not
+        configured."
         """
         if not os.environ.get(self._API_KEY_ENV):
             return None
         response = self._call("listPurchases")
         data = response.get("data")
-        if not isinstance(data, list):
-            raise Digistore24APIError(f"Digistore24 listPurchases response had no real 'data' list: {response!r}")
-        return data
+        if not isinstance(data, dict) or not isinstance(data.get("purchase_list"), list):
+            raise Digistore24APIError(
+                f"Digistore24 listPurchases response had no real 'data.purchase_list' list: {response!r}"
+            )
+        return data["purchase_list"]
 
     def list_marketplace_entries(self, sort_by: str | None = None) -> dict | None:
         """Real, read-only PROBE call to `listMarketplaceEntries`
