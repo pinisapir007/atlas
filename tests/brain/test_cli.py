@@ -187,6 +187,54 @@ def test_allocate_recommends_investing_new_for_a_real_cleared_category(tmp_path,
     assert "gemini" in out and "claude" in out
 
 
+def test_collect_from_a_real_document_produces_a_real_finding(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    doc = tmp_path / "notes.txt"
+    doc.write_text("Real founder notes: strong real demand signal for keto snack products among real customers.")
+
+    main(["resources", "approve-folder", str(tmp_path)])
+    capsys.readouterr()
+
+    from unittest.mock import patch
+
+    with patch(
+        "atlas.brain.evidence_validation.get_ai_provider",
+        return_value=type("P", (), {"complete_structured": staticmethod(lambda prompt, fields: {"relevant": "yes", "reason": "directly discusses demand"})})(),
+    ):
+        main(["brain", "collect", str(doc), "affiliate", "founder-notes", "is there real demand for keto snacks?"])
+    out = capsys.readouterr().out
+    assert "affiliate" in out
+
+    from atlas.brain.knowledge import KnowledgeBase
+    findings = KnowledgeBase().findings()
+    assert len(findings) == 1
+    assert findings[0].evidence == str(doc)
+
+
+def test_collect_rejects_a_path_outside_any_approved_folder(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    doc = tmp_path / "notes.txt"
+    doc.write_text("real content")
+
+    main(["brain", "collect", str(doc), "affiliate", "founder-notes", "a real task"])
+    out = capsys.readouterr().out
+    assert "REJECTED" in out
+
+    from atlas.brain.knowledge import KnowledgeBase
+    assert KnowledgeBase().findings() == []
+
+
+def test_approve_domain_records_a_real_approval(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    main(["brain", "approve-domain", "reddit.com"])
+    out = capsys.readouterr().out
+    assert "approved: reddit.com" in out
+
+    from atlas.brain.browser_allowlist import BrowserAllowlist
+    assert BrowserAllowlist().is_approved("https://reddit.com/r/keto")
+
+
 def test_goal_list_shows_horizon(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     main(["brain", "goal", "add", "Test goal", "--horizon", "long"])

@@ -7,8 +7,12 @@ from atlas.assets.creative_agent.agent import CreativeAgent
 from atlas.assets.publishing_gateway.agent import PublishingGatewayAgent
 from atlas.assets.publishing_gateway.store import PublishingQueueStore
 from atlas.assets.recruitment_workforce.agent import RecruitmentAgent
+from atlas.brain.browser_plugin import DomainNotApprovedError
 from atlas.brain.capital_allocation import recommend_allocation
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.document_plugin import PathNotApprovedError
+from atlas.brain.knowledge_source_research import EvidenceQualityRejected, collect_evidence_from_source
+from atlas.integrations.ai_provider_registry import get_ai_provider
 from atlas.brain.confidence import confidence_score, rank_by_confidence
 from atlas.brain.explain import explain_opportunity
 from atlas.brain.asset_value import success_law_lifetime_value
@@ -167,6 +171,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     allocate_parser = brain_sub.add_parser("allocate", help="Capital Allocation V1 -- real, explained open/strengthen/hold recommendation for a candidate category, across the whole real portfolio")
     allocate_parser.add_argument("category")
+
+    collect_parser = brain_sub.add_parser("collect", help="Knowledge Sources V1 -- observe one real source (web or document, dispatched by plugin), validate it against a real task, and record exactly one real Finding")
+    collect_parser.add_argument("source_ref", help="a real https:// URL or a real local .txt/.md file path")
+    collect_parser.add_argument("category")
+    collect_parser.add_argument("source", help="a short label for where this came from, e.g. 'reddit' or 'founder-notes'")
+    collect_parser.add_argument("task_description", help="what this evidence needs to genuinely address, e.g. 'is there real demand for X'")
+    collect_parser.add_argument("--subject", default="")
+    collect_parser.add_argument("--market", default="")
+    collect_parser.add_argument("--ai-provider", default=None, dest="ai_provider_name", help="which registered AI provider judges task relevance (see 'atlas brain allocate' output for what's registered); defaults to the registry default")
+
+    approve_domain_parser = brain_sub.add_parser("approve-domain", help="explicitly approve a real domain for autonomous browsing -- required before 'brain collect' will touch a web source there")
+    approve_domain_parser.add_argument("domain")
 
     decisions_parser = brain_sub.add_parser("decisions", help="Decision Engine verdict history — full traceability, read-only")
     decisions_sub = decisions_parser.add_subparsers(dest="decisions_command", required=True)
@@ -758,6 +774,24 @@ def _cmd_brain(args: argparse.Namespace) -> None:
             print(f"PAUSE CANDIDATES: {[d['goal_id'] for d in rec.pause_candidates]}")
         print(rec.ai_providers_note)
         print(f"objective_id={rec.objective_id}")
+
+    elif cmd == "approve-domain":
+        from atlas.brain.browser_allowlist import BrowserAllowlist
+
+        BrowserAllowlist().approve_domain(args.domain)
+        print(f"approved: {args.domain}")
+
+    elif cmd == "collect":
+        ai_provider = get_ai_provider(args.ai_provider_name) if args.ai_provider_name else None
+        try:
+            finding = collect_evidence_from_source(
+                args.source_ref, args.category, args.source, args.task_description,
+                brain.knowledge, subject=args.subject, market=args.market, ai_provider=ai_provider,
+            )
+        except (EvidenceQualityRejected, ValueError, DomainNotApprovedError, PathNotApprovedError) as exc:
+            print(f"REJECTED: {exc}")
+            return
+        print(f"{finding.id}\t{finding.category}\t{finding.subject}\t{finding.description[:120]}")
 
     elif cmd == "task":
         if args.task_command == "add":

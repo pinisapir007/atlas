@@ -370,6 +370,63 @@ class AIProvider(Protocol):
 
 
 @runtime_checkable
+class KnowledgeSourcePlugin(Protocol):
+    """A real, pluggable knowledge source (2026-08-06, Knowledge
+    Sources V1) — the general mechanism behind "ATLAS learns from any
+    relevant business knowledge source: websites, documents, and in
+    the future YouTube/TikTok/Instagram/Facebook/podcasts and other
+    business sources," without the orchestrating code ever needing to
+    know which kind of source it's talking to. Deliberately organized
+    by real-world source, never by media type — a YouTube video is
+    one source (video + audio + transcript + metadata together), not
+    three separate plugins, because that's what it structurally is in
+    the real world, not an artifact of how a computer decodes it.
+
+    `can_handle(source_ref)` is pure, side-effect-free format
+    recognition only (e.g. "is this an http(s) URL") — never a
+    permission or credential check; real implementations (see
+    atlas.brain.browser_plugin/document_plugin) each own their real
+    policy check internally (a domain allowlist, a folder allowlist)
+    inside `observe()`, the same fail-closed-by-default discipline
+    every allowlist in this codebase already establishes, since
+    different real source types genuinely need different allowlist
+    mechanisms and the dispatch loop must never need to know which.
+
+    One real class per real source type — see
+    atlas.brain.knowledge_source_registry (KNOWLEDGE_SOURCE_PLUGINS)
+    for where a real implementation gets registered. Adding a source
+    (a document, and in the future a video/audio/social source) means
+    one new class satisfying this Protocol and one registry entry,
+    never touching this Protocol, the registry's dispatch logic, or
+    any existing plugin — the same extension discipline
+    CommerceProvider/BrowserObserver/AIProvider already establish.
+
+    Real implementations live in atlas.brain, not atlas.integrations
+    (the same split IntelligenceProvider/FindingsMarketIntelligence
+    Provider already establish) — a real plugin here inherently
+    carries brain-layer policy (an allowlist), not just a raw,
+    policy-free platform connection.
+    """
+
+    name: str
+
+    def can_handle(self, source_ref: str) -> bool:
+        """Whether this plugin's real backend can observe `source_ref`
+        at all, purely by its form (a URL, a file path, ...) — never a
+        permission check, never a network/disk call."""
+        ...
+
+    def observe(self, source_ref: str, extract: dict[str, str] | None = None) -> PageObservation:
+        """Reads `source_ref`'s real content and returns it. Raises on
+        a real, unrecoverable failure — not approved by this plugin's
+        own real allowlist, unreachable/not found, or any other real
+        failure — never a fabricated empty observation, the same
+        fail-loud discipline every other real observer in this
+        codebase already establishes."""
+        ...
+
+
+@runtime_checkable
 class IntelligenceProvider(Protocol):
     """A real source of intelligence for the Intelligence Engine
     (atlas.brain.intelligence_engine) — one real class per real
