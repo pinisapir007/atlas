@@ -255,6 +255,120 @@ class Intelligence:
     error: str | None = None
 
 
+@dataclass
+class PageObservation:
+    """Real, raw content read from one real page visit (2026-08-06,
+    BrowserObserver V1) — never summarized or fabricated by this layer.
+    Mirrors Resource/Opportunity/Intelligence's exact "real evidence,
+    honestly incomplete" discipline: every field is either real data
+    actually extracted from the page, or its honest empty/default value,
+    never a guess. `structured_data` carries whatever specific fields a
+    caller asked to extract (see BrowserObserver.observe's `extract`
+    param); `text_content` is the real, raw page text, always present
+    when a page was successfully reached. `screenshot_path`, when set,
+    points to a real file on disk — never a fabricated reference."""
+
+    url: str
+    title: str
+    text_content: str
+    structured_data: dict = field(default_factory=dict)
+    screenshot_path: str = ""
+    fetched_at: str = ""
+    error: str | None = None
+
+
+@runtime_checkable
+class BrowserObserver(Protocol):
+    """A real, read-only browser capability (2026-08-06, BrowserObserver
+    V1) — navigate to a real public URL and observe its real content.
+    Deliberately narrower than a general browser-automation interface:
+    this Protocol has no click/type/submit/login capability at all —
+    only observation. Real, authenticated, or interactive browsing (the
+    "act" side) is a structurally separate, higher-risk capability
+    (a future BrowserActionAgent) that this Protocol does not, and is
+    not meant to, provide — the same two-tier split CommerceProvider
+    (read: fetch_recent_sales) and ContentPublisher (write: publish)
+    already establish one layer up.
+
+    One real implementation per real browser-automation backend — see
+    atlas.integrations.browser_observer_registry (BROWSER_OBSERVERS,
+    starts empty, mirrors signal_registry.SIGNAL_PROVIDERS exactly) for
+    where a real implementation gets registered once one is chosen. No
+    implementation exists anywhere in this codebase yet, the same
+    "Protocol defined, real class lives in its own module, registry
+    starts empty" pattern this codebase already establishes for every
+    other unbuilt provider.
+    """
+
+    name: str
+
+    def observe(self, url: str, extract: dict[str, str] | None = None) -> PageObservation:
+        """Navigates to the real `url` and returns its real content.
+        `extract` (optional) names specific fields to pull out, e.g.
+        {"price": "the listed price"} — when omitted, only real raw
+        title/text is returned. Raises on a real, unrecoverable failure
+        (page unreachable, timeout) rather than returning a fabricated
+        empty observation — the same fail-loud discipline
+        Digistore24Provider's Digistore24APIError already establishes
+        for a real, unexpected failure."""
+        ...
+
+
+@runtime_checkable
+class AIProvider(Protocol):
+    """A real AI backend ATLAS can route a task to (2026-08-06, AI
+    Orchestrator V1). Before this Protocol existed, every caller that
+    needed an AI call picked its own backend directly and hardcoded it
+    (browser_use_observer.py instantiated ChatGoogle itself; the
+    Claude executive connection was its own standalone, ungeneralized
+    function -- explicitly documented at the time as "no Protocol, no
+    provider registry... generalizing before a second [implementation]
+    exists would be premature," per claude_provider.py). That second
+    real implementation now exists (Claude, via the CLI), which is
+    exactly the trigger that docstring named -- this Protocol is that
+    generalization, not a premature one.
+
+    Two real, general capabilities, not the full surface either real
+    backend happens to expose: `complete` (a prompt in, real text out
+    -- the one primitive every AI backend genuinely shares) and
+    `complete_structured` (a prompt plus named fields in, a real dict
+    of extracted values out -- what real, existing callers like
+    BrowserObserver's evidence extraction actually need). Every
+    provider implements both, the same "every provider implements the
+    full Protocol shape, capability limits are expressed through
+    behavior, never a missing method" discipline CommerceProvider.
+    fetch_recent_sales() already established.
+
+    One real class per real AI backend -- see
+    atlas.integrations.ai_provider_registry (AI_PROVIDERS) for where a
+    real implementation gets registered. Adding a backend means one
+    new class satisfying this Protocol and one registry entry, never
+    touching an existing provider or any caller -- the same extension
+    discipline CommerceProvider/BrowserObserver/MarketSignalProvider
+    already established three times over in this codebase.
+    """
+
+    name: str
+
+    def complete(self, prompt: str) -> str:
+        """Sends `prompt` to the real backend and returns its real,
+        raw text response. Raises on a real, unrecoverable failure
+        (missing credential, network/process failure, an error the
+        backend itself reports) rather than returning a fabricated
+        empty string -- the same fail-loud discipline every other
+        provider Protocol in this codebase already establishes."""
+        ...
+
+    def complete_structured(self, prompt: str, fields: dict[str, str]) -> dict[str, str]:
+        """Asks the real backend to extract/answer the named `fields`
+        (field name -> what it means, e.g. {"price": "the listed
+        price"}) from `prompt`, and returns the real values found --
+        an empty string for a field genuinely absent from the real
+        response, never an invented value. Raises on a real,
+        unrecoverable failure, the same as `complete`."""
+        ...
+
+
 @runtime_checkable
 class IntelligenceProvider(Protocol):
     """A real source of intelligence for the Intelligence Engine
