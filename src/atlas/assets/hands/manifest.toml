@@ -1,0 +1,10 @@
+id = "hands"
+name = "Hands"
+kind = "operational_agent"
+description = "Real-world execution: browser actions (navigate, click, fill forms, upload/download files) and desktop actions (mouse, keyboard, application control). Executes exactly one already risk-gated HandsRequest per real Task dispatch -- never decides what to do, only performs an action ATLAS's brain already decided and RiskPolicy already cleared."
+owner = "atlas"
+tags = ["hands", "execution", "browser", "desktop"]
+entrypoint = "atlas.assets.hands.agent:HandsAgent"
+
+[config]
+categories = ["hands_execute"]
