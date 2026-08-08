@@ -19,6 +19,7 @@ from atlas.brain.console import (
     recent_activity,
     summarize_department_report,
 )
+from atlas.brain.conversation_memory import ConversationMemory
 from atlas.repl import HELP_TEXT, dispatch
 from atlas.speech import listen, speak
 
@@ -149,8 +150,10 @@ def run_app(
     listen_enabled: bool = False,
     print_fn=print,
     clear_fn=None,
+    conversation_memory: ConversationMemory | None = None,
 ) -> None:
     brain = brain if brain is not None else CEOBrain()
+    conversation_memory = conversation_memory if conversation_memory is not None else brain.conversations
     if speak_enabled is None:
         speak_enabled = os.environ.get("ATLAS_CONSOLE_SPEAK") == "1"
 
@@ -186,6 +189,7 @@ def run_app(
         buffer: list[str] = []
         result = dispatch(brain, _normalize(line), print_fn=buffer.append)
         transcript.extend(buffer)
+        conversation_memory.record_turn(line, "\n".join(buffer))
         _redraw(brain, transcript, print_fn, clear_fn)
 
         if result is False:

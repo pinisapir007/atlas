@@ -114,6 +114,63 @@ def test_new_sections_default_to_empty_when_registries_are_not_provided(tmp_path
     assert report["success_laws"] == {"total": 0, "evidence_backed": 0, "ranked_by_track_record": []}
     assert report["asset_portfolio"] == []
     assert report["publishing_readiness"] == {"packages_ready": 0, "steps_blocked": []}
+    assert report["related_memory"] == {}
+
+
+def test_related_memory_surfaces_real_findings_relevant_to_an_active_goal(tmp_path):
+    memory = BrainMemory(tmp_path / "brain.json")
+    goal = Goal(description="grow the keto affiliate business", status="active")
+    memory.save_goal(goal)
+    knowledge = KnowledgeBase(tmp_path / "knowledge.json")
+    knowledge.save_finding(Finding(source="reddit", category="affiliate", description="real demand for keto products", evidence="https://e1"))
+
+    report = Reporter().summarize("daily", memory, KPIRegistry(memory), knowledge=knowledge)
+
+    assert goal.id in report["related_memory"]
+    hits = report["related_memory"][goal.id]
+    assert any(h["store"] == "finding" for h in hits)
+
+
+def test_related_memory_excludes_the_goal_s_own_record():
+    class _FakeStore:
+        def __init__(self):
+            self._data = None
+
+        def read(self):
+            return self._data
+
+        def write(self, data):
+            self._data = data
+
+    memory = BrainMemory(store=_FakeStore())
+    goal = Goal(description="grow the keto affiliate business", status="active")
+    memory.save_goal(goal)
+
+    report = Reporter().summarize("daily", memory, KPIRegistry(memory))
+
+    assert report["related_memory"] == {}
+
+
+def test_related_memory_skips_paused_and_done_goals():
+    class _FakeStore:
+        def __init__(self):
+            self._data = None
+
+        def read(self):
+            return self._data
+
+        def write(self, data):
+            self._data = data
+
+    memory = BrainMemory(store=_FakeStore())
+    knowledge = KnowledgeBase(store=_FakeStore())
+    goal = Goal(description="keto business", status="paused")
+    memory.save_goal(goal)
+    knowledge.save_finding(Finding(source="a", category="affiliate", description="keto demand evidence", evidence="e"))
+
+    report = Reporter().summarize("daily", memory, KPIRegistry(memory), knowledge=knowledge)
+
+    assert report["related_memory"] == {}
 
 
 def test_opportunities_section_reflects_real_ranked_evidence(tmp_path):

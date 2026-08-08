@@ -18,6 +18,7 @@ from atlas.brain.console import (
     recent_activity,
     summarize_department_report,
 )
+from atlas.brain.conversation_memory import ConversationMemory
 from atlas.speech import speak
 
 HELP_TEXT = """Commands:
@@ -36,8 +37,15 @@ HELP_TEXT = """Commands:
   exit           quit the console"""
 
 
-def run_repl(brain: CEOBrain | None = None, input_lines=None, speak_enabled: bool | None = None, print_fn=print) -> None:
+def run_repl(
+    brain: CEOBrain | None = None,
+    input_lines=None,
+    speak_enabled: bool | None = None,
+    print_fn=print,
+    conversation_memory: ConversationMemory | None = None,
+) -> None:
     brain = brain if brain is not None else CEOBrain()
+    conversation_memory = conversation_memory if conversation_memory is not None else brain.conversations
     if speak_enabled is None:
         speak_enabled = os.environ.get("ATLAS_CONSOLE_SPEAK") == "1"
 
@@ -57,7 +65,21 @@ def run_repl(brain: CEOBrain | None = None, input_lines=None, speak_enabled: boo
         line = line.strip()
         if not line:
             continue
-        if dispatch(brain, line, print_fn=print_fn) is False:
+
+        # Real, durable conversation memory (2026-08-09): capture every
+        # real line dispatch() prints during this turn, then record it —
+        # never interpreted/summarized by an LLM here (that would be a
+        # fabricated paraphrase of what ATLAS actually said), the raw
+        # real output is the honest record.
+        captured: list[str] = []
+
+        def _capturing_print(*args, **kwargs):
+            captured.append(" ".join(str(a) for a in args))
+            print_fn(*args, **kwargs)
+
+        result = dispatch(brain, line, print_fn=_capturing_print)
+        conversation_memory.record_turn(line, "\n".join(captured))
+        if result is False:
             return
 
 

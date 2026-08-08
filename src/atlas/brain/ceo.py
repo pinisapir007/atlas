@@ -4,6 +4,7 @@ from atlas.brain.affiliate_intelligence_advance import advance_affiliate_intelli
 from atlas.brain.affiliate_pipeline_advance import advance_affiliate_pipeline
 from atlas.brain.campaign_advance import advance_decision_driven_campaigns
 from atlas.brain.content_factory_advance import advance_content_factory
+from atlas.brain.conversation_memory import ConversationMemory
 from atlas.brain.creative_agent_advance import advance_creative_agent
 from atlas.brain.decision_apply import apply_decision
 from atlas.brain.decision_engine import decide_all, has_materially_changed
@@ -65,6 +66,7 @@ class CEOBrain:
         brands: BrandRegistry | None = None,
         execution_plans: ExecutionPlanRegistry | None = None,
         affiliate_store: AffiliateStore | None = None,
+        conversations: ConversationMemory | None = None,
     ):
         self.memory = memory if memory is not None else BrainMemory()
         self.registry = registry if registry is not None else Registry()
@@ -88,6 +90,7 @@ class CEOBrain:
         self.influencers = influencers if influencers is not None else InfluencerRegistry()
         self.brands = brands if brands is not None else BrandRegistry()
         self.execution_plans = execution_plans if execution_plans is not None else ExecutionPlanRegistry()
+        self.conversations = conversations if conversations is not None else ConversationMemory()
         self.kpis = KPIRegistry(self.memory)
         self.delegator = Delegator(self.memory)
         self.monitor = Monitor()
@@ -242,7 +245,17 @@ class CEOBrain:
             self.memory.save_task(task)
 
         return self.reporter.summarize(
-            period, self.memory, self.kpis, self.knowledge, self.campaigns, self.influencers, self.brands, self.execution_plans
+            period,
+            self.memory,
+            self.kpis,
+            self.knowledge,
+            self.campaigns,
+            self.influencers,
+            self.brands,
+            self.execution_plans,
+            self.decisions,
+            self.ledger,
+            self.conversations,
         )
 
     def _evaluate_applied_proposals(self) -> None:

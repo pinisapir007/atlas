@@ -17,6 +17,7 @@ from atlas.influencer.performance import performance_snapshot
 from atlas.influencer.ranking import prefer_market_match, rank_influencers
 from atlas.influencer.registry import InfluencerRegistry, add_category
 from atlas.brain.opportunity_ranking import relevant_success_laws
+from atlas.brain.success_patterns import best_pattern_for_category
 from atlas.orchestrator.orchestrator import start_execution
 from atlas.orchestrator.registry import ExecutionPlanRegistry
 
@@ -157,6 +158,19 @@ def advance_decision_driven_campaigns(
         # the loop this directive asked for, without inventing causation.
         law_ids = [law.id for law in relevant_success_laws(category, knowledge)]
 
+        # Learning V1 (2026-08-09): the real, concrete behavior-change
+        # wiring for "identify success patterns" -- before this, a new
+        # campaign's content_formats/platform_strategy were always left
+        # empty here (no code anywhere set them). If real, measured
+        # profit from at least MIN_CAMPAIGNS_FOR_PATTERN prior campaigns
+        # in this category supports one particular combination, ATLAS now
+        # starts the new campaign with that real, evidence-backed
+        # combination instead of nothing -- genuinely using accumulated
+        # experience to change what it does next, not just recording it.
+        # None (today's exact prior behavior) when there isn't enough
+        # real evidence yet -- never guessed.
+        pattern = best_pattern_for_category(category, campaigns, memory, kpis)
+
         campaign = create_campaign(
             business_objective=goal.description,
             category=category,
@@ -167,6 +181,8 @@ def advance_decision_driven_campaigns(
             memory=memory,
             kpis=kpis,
             registry=campaigns,
+            content_formats=pattern.content_formats if pattern else None,
+            platform_strategy=pattern.platform_strategy if pattern else "",
             goal_id=goal.id,
             # The real, already-validated affiliate link (see
             # affiliate_department.models.validate_provider_link(), run at

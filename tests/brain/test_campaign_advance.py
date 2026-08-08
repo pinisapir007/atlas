@@ -146,6 +146,54 @@ def test_real_product_and_influencer_together_create_and_activate_a_campaign(tmp
     assert campaign.destination_url == "https://www.digistore24.com/redir/123456/myaffid/"
 
 
+def test_new_campaign_has_no_content_pattern_with_no_prior_evidence(tmp_path):
+    # Today's honest default, unchanged: with no prior real campaigns in
+    # this category, there's nothing to learn from yet.
+    world = _World(tmp_path)
+    goal = world.decision_engine_goal()
+    world.selected_opportunity(goal.id)
+    world.influencer()
+
+    world.advance()
+
+    campaign = world.campaigns.campaigns()[0]
+    assert campaign.content_formats == []
+    assert campaign.platform_strategy == ""
+
+
+def test_new_campaign_adopts_a_real_evidence_backed_success_pattern(tmp_path):
+    # Learning V1 (2026-08-09): two real, already-closed campaigns in the
+    # same category, both using the same real content_formats/
+    # platform_strategy combination, both with real measured profit —
+    # enough real evidence for a pattern. A brand-new campaign in the
+    # same category should now start with that real, evidence-backed
+    # combination instead of nothing, proving accumulated experience
+    # genuinely changes what ATLAS does next, not just what it reports.
+    world = _World(tmp_path)
+
+    for _ in range(2):
+        prior_goal = Goal(description="a past affiliate campaign", status="done")
+        world.memory.save_goal(prior_goal)
+        world.kpis.record(f"revenue_{prior_goal.id}", 500.0)
+        world.kpis.record(f"cost_{prior_goal.id}", 50.0)
+        world.campaigns.save_campaign(
+            Campaign(
+                business_objective="d", category="affiliate", product_offer="p", goal_id=prior_goal.id,
+                content_formats=["image", "caption"], platform_strategy="Instagram",
+            )
+        )
+
+    goal = world.decision_engine_goal()
+    world.selected_opportunity(goal.id)
+    world.influencer()
+
+    world.advance()
+
+    new_campaign = [c for c in world.campaigns.campaigns() if c.goal_id == goal.id][0]
+    assert new_campaign.content_formats == ["caption", "image"]
+    assert new_campaign.platform_strategy == "Instagram"
+
+
 def test_campaign_links_real_relevant_success_laws_at_creation(tmp_path):
     from atlas.brain.models import SuccessLaw
 

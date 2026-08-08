@@ -18,6 +18,7 @@ from atlas.brain.explain import explain_opportunity
 from atlas.brain.asset_value import success_law_lifetime_value
 from atlas.brain.opportunity_ranking import explain_opportunity_subject, rank_opportunities
 from atlas.brain.portfolio import portfolio_entries, rank_portfolio
+from atlas.brain.recall import recall
 from atlas.brain.console import build_console_view, format_console_view
 from atlas.brain.kpi_intake import record_manual_cost, record_manual_refund, record_manual_revenue, record_manual_settlement
 from atlas.brain.models import Finding, StrategicObjective, SuccessLaw, Task
@@ -189,6 +190,10 @@ def build_parser() -> argparse.ArgumentParser:
     decisions_sub.add_parser("list", help="every Decision on record, latest first")
     decisions_show = decisions_sub.add_parser("show", help="full provenance for one category's current decision")
     decisions_show.add_argument("category")
+
+    recall_parser = brain_sub.add_parser("recall", help="Memory V1 -- real, unified search across every durable store ATLAS keeps (goals, tasks, findings, success laws, decisions, campaigns, influencers, brands, ledger, execution plans, conversations)")
+    recall_parser.add_argument("query", help="plain, case-insensitive substring to search for")
+    recall_parser.add_argument("--limit", type=int, default=20)
 
     recruitment_parser = subparsers.add_parser("recruitment", help="Recruitment/Workforce agent intake and approvals")
     recruitment_sub = recruitment_parser.add_subparsers(dest="recruitment_command", required=True)
@@ -961,6 +966,24 @@ def _cmd_brain(args: argparse.Namespace) -> None:
             for decision in sorted(brain.decisions.decisions(), key=lambda d: d.created_at, reverse=True):
                 confidence = f"{decision.confidence:.3f}" if decision.confidence is not None else "unscored"
                 print(f"{decision.id}\t{decision.category}\t{decision.verdict}\tconfidence={confidence}\t{decision.created_at}")
+    elif cmd == "recall":
+        hits = recall(
+            args.query,
+            memory=brain.memory,
+            knowledge=brain.knowledge,
+            decisions=brain.decisions,
+            campaigns=brain.campaigns,
+            influencers=brain.influencers,
+            brands=brain.brands,
+            ledger=brain.ledger,
+            execution_plans=brain.execution_plans,
+            conversations=brain.conversations,
+            limit=args.limit,
+        )
+        if not hits:
+            print(f"no real memory found matching {args.query!r}")
+        for hit in hits:
+            print(f"[{hit.store}] {hit.id}\t{hit.created_at}\t{hit.summary}")
 
 
 def _print_decision(decision) -> None:

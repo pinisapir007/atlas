@@ -3,11 +3,15 @@ from datetime import datetime, timedelta, timezone
 from atlas.brain.asset_value import rank_success_laws_by_track_record, success_law_lifetime_value
 from atlas.brain.cashflow import goal_cash_flow
 from atlas.brain.confidence import confidence_score, rank_by_confidence
+from atlas.brain.conversation_memory import ConversationMemory
+from atlas.brain.decisions import DecisionLog
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
+from atlas.brain.ledger import Ledger
 from atlas.brain.memory import BrainMemory
 from atlas.brain.opportunity_ranking import rank_opportunities
 from atlas.brain.portfolio import portfolio_entries, rank_portfolio
+from atlas.brain.recall import recall
 from atlas.brand.registry import BrandRegistry
 from atlas.campaign.registry import CampaignRegistry
 from atlas.influencer.registry import InfluencerRegistry
@@ -50,6 +54,9 @@ class Reporter:
         influencers: InfluencerRegistry | None = None,
         brands: BrandRegistry | None = None,
         execution_plans: ExecutionPlanRegistry | None = None,
+        decisions: DecisionLog | None = None,
+        ledger: Ledger | None = None,
+        conversations: ConversationMemory | None = None,
     ) -> dict:
         if period not in PERIOD_DAYS:
             raise ValueError(f"unknown period: {period} (expected one of {sorted(PERIOD_DAYS)})")
@@ -106,6 +113,9 @@ class Reporter:
             "success_laws": _success_law_summary(knowledge, campaigns, memory, kpis),
             "asset_portfolio": _asset_portfolio_summary(influencers, brands, campaigns, memory, kpis),
             "publishing_readiness": _publishing_readiness_summary(execution_plans),
+            "related_memory": _related_memory_summary(
+                memory, knowledge, decisions, campaigns, influencers, brands, ledger, execution_plans, conversations
+            ),
         }
 
 
@@ -225,3 +235,65 @@ def _publishing_readiness_summary(execution_plans: ExecutionPlanRegistry | None)
             if s.status == "blocked"
         ],
     }
+
+
+def _related_memory_summary(
+    memory: BrainMemory,
+    knowledge: KnowledgeBase | None,
+    decisions: DecisionLog | None,
+    campaigns: CampaignRegistry | None,
+    influencers: InfluencerRegistry | None,
+    brands: BrandRegistry | None,
+    ledger: Ledger | None,
+    execution_plans: ExecutionPlanRegistry | None,
+    conversations: ConversationMemory | None,
+) -> dict:
+    """Real Memory V1 usage in a real decision-support path (2026-08-09):
+    for each currently-active goal, recall() everything else ATLAS
+    remembers whose text relates to that goal's own description --
+    relevant past findings, decisions, campaigns, conversations. This is
+    what makes recall() more than a standalone search command: the
+    periodic executive report a founder (or ATLAS itself, reading its own
+    report) uses to decide what to do next now surfaces relevant history
+    automatically. Every registry is optional and this degrades to an
+    empty section, the same graceful pattern every other section here
+    already has."""
+    result: dict[str, list[dict]] = {}
+    for goal in memory.goals():
+        if goal.status != "active":
+            continue
+        # A goal's description is a full sentence; recall()'s own match is
+        # a plain, honest substring check (never a fabricated relevance
+        # score), so searching the whole phrase verbatim would almost
+        # never match a related-but-differently-worded record. Instead,
+        # search per significant word (>3 chars, a crude but honest stand-
+        # in for "not a stopword") and merge/dedup real hits — still no
+        # invented scoring, just a wider honest net.
+        words = {w for w in goal.description.lower().split() if len(w) > 3}
+        seen_ids: set[tuple[str, str]] = set()
+        goal_hits = []
+        for word in words:
+            for hit in recall(
+                word,
+                memory=memory,
+                knowledge=knowledge,
+                decisions=decisions,
+                campaigns=campaigns,
+                influencers=influencers,
+                brands=brands,
+                ledger=ledger,
+                execution_plans=execution_plans,
+                conversations=conversations,
+                limit=5,
+            ):
+                if hit.store == "goal" and hit.id == goal.id:
+                    continue
+                key = (hit.store, hit.id)
+                if key in seen_ids:
+                    continue
+                seen_ids.add(key)
+                goal_hits.append(hit)
+        if goal_hits:
+            goal_hits.sort(key=lambda h: h.created_at, reverse=True)
+            result[goal.id] = [{"store": h.store, "id": h.id, "summary": h.summary} for h in goal_hits[:5]]
+    return result
