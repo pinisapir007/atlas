@@ -136,3 +136,44 @@ def test_a_real_provider_failure_during_extraction_is_wrapped_as_browser_use_err
         observer = BrowserUseObserver(api_key="unused", ai_provider=_FailingProvider())
         with pytest.raises(BrowserUseError, match="real provider outage"):
             observer.observe("https://example.com", extract={"heading": "the heading"})
+
+
+def test_without_include_screenshot_no_screenshot_is_taken_or_saved():
+    fake_session = _fake_session()
+    with patch("browser_use.BrowserSession", return_value=fake_session):
+        observer = BrowserUseObserver(api_key="fake-key")
+        result = observer.observe("https://example.com")
+
+    fake_session.take_screenshot.assert_not_called()
+    assert result.screenshot_path == ""
+
+
+def test_include_screenshot_captures_saves_and_understands_a_real_screenshot(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    fake_session = _fake_session()
+    fake_session.take_screenshot.return_value = b"real-fake-screenshot-png-bytes"
+    fake_response = type("R", (), {"completion": "A real page showing example.com."})()
+
+    with patch("browser_use.BrowserSession", return_value=fake_session), \
+         patch("browser_use.llm.google.chat.ChatGoogle") as MockChatGoogle:
+        MockChatGoogle.return_value.ainvoke = AsyncMock(return_value=fake_response)
+        observer = BrowserUseObserver(api_key="fake-key")
+        result = observer.observe("https://example.com", include_screenshot=True)
+
+    fake_session.take_screenshot.assert_awaited_once()
+    assert result.screenshot_path != ""
+    from pathlib import Path
+    assert Path(result.screenshot_path).read_bytes() == b"real-fake-screenshot-png-bytes"
+    assert result.structured_data["screenshot_description"] == "A real page showing example.com."
+
+
+def test_include_screenshot_false_by_default_preserves_exact_original_behavior():
+    fake_session = _fake_session()
+    with patch("browser_use.BrowserSession", return_value=fake_session):
+        observer = BrowserUseObserver(api_key="fake-key")
+        result = observer.observe("https://example.com")
+
+    assert result.url == _REAL_URL
+    assert result.title == _REAL_TITLE
+    assert result.text_content == _REAL_TEXT
+    assert result.structured_data == {}

@@ -38,15 +38,27 @@ is the first real migration proving the orchestrator's actual claim:
 the AI backend can be swapped (e.g. to ClaudeProvider) without any
 change to this module's own code, only to which provider is passed
 in.
+
+Screenshot Reading (2026-08-09, Vision V1): `observe(..., include_
+screenshot=True)` is purely additive -- every existing caller/test
+that doesn't pass it keeps the exact original behavior. Uses
+BrowserSession's own real `take_screenshot()` (CDP-backed, already
+installed, zero new dependency) captured from inside the same live
+session `_observe_async` already opens, then understood via the same
+real GeminiProvider.understand_image() ImagePlugin/ScreenReader
+already established -- one shared real mechanism for every real image
+source, not a fourth reimplementation.
 """
 
 import asyncio
 import os
+from pathlib import Path
 
 from atlas.integrations.base import AIProvider, PageObservation
-from atlas.integrations.gemini_provider import GeminiProvider
+from atlas.integrations.gemini_provider import GeminiProvider, GeminiProviderError
 
 DEFAULT_MODEL = "gemini-flash-latest"  # verified live 2026-08-06: gemini-2.5-flash returns a real 404 for new accounts
+_SCREENSHOT_DIR = Path(".atlas/screenshots")
 
 
 class BrowserUseError(Exception):
@@ -75,7 +87,12 @@ class BrowserUseObserver:
         self._model = model
         self._ai_provider = ai_provider
 
-    def observe(self, url: str, extract: dict[str, str] | None = None) -> PageObservation:
+    def observe(
+        self,
+        url: str,
+        extract: dict[str, str] | None = None,
+        include_screenshot: bool = False,
+    ) -> PageObservation:
         """Synchronous entry point (the BrowserObserver Protocol is
         sync; browser-use is natively async) — runs the real async
         navigation via asyncio.run(), the same bridge pattern used
@@ -84,9 +101,15 @@ class BrowserUseObserver:
         back in sync land -- deliberately outside the async browser
         session block, since AIProvider.complete_structured is itself
         a sync method with its own internal asyncio.run(), which
-        cannot be called from inside an already-running event loop."""
+        cannot be called from inside an already-running event loop.
+        `include_screenshot=True` (default False, purely additive)
+        captures a real screenshot from inside the live session and
+        understands it via the same real mechanism afterward, same
+        reasoning."""
         try:
-            title, real_url, text_content = asyncio.run(self._observe_async(url))
+            title, real_url, text_content, screenshot_bytes = asyncio.run(
+                self._observe_async(url, include_screenshot)
+            )
         except BrowserUseError:
             raise
         except Exception as exc:  # noqa: BLE001 -- any real browser-use/CDP failure surfaces loudly, never silently
@@ -96,14 +119,23 @@ class BrowserUseObserver:
         if extract:
             structured_data = self._extract_fields(url, text_content, extract)
 
+        screenshot_path = ""
+        if include_screenshot and screenshot_bytes:
+            screenshot_path = self._save_screenshot(screenshot_bytes)
+            structured_data = {
+                **structured_data,
+                "screenshot_description": self._understand_screenshot(screenshot_bytes),
+            }
+
         return PageObservation(
             url=real_url or url,
             title=title or "",
             text_content=text_content or "",
             structured_data=structured_data,
+            screenshot_path=screenshot_path,
         )
 
-    async def _observe_async(self, url: str) -> tuple[str, str, str]:
+    async def _observe_async(self, url: str, include_screenshot: bool) -> tuple[str, str, str, bytes | None]:
         from browser_use import BrowserSession
 
         session = BrowserSession()
@@ -113,10 +145,38 @@ class BrowserUseObserver:
             title = await session.get_current_page_title()
             real_url = await session.get_current_page_url()
             text_content = await session.get_state_as_text()
+            screenshot_bytes = await session.take_screenshot() if include_screenshot else None
         finally:
             await session.stop()
 
-        return title, real_url, text_content
+        return title, real_url, text_content, screenshot_bytes
+
+    def _save_screenshot(self, screenshot_bytes: bytes) -> str:
+        from atlas.brain.models import new_id
+
+        _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        path = _SCREENSHOT_DIR / f"{new_id('screenshot')}.png"
+        path.write_bytes(screenshot_bytes)
+        return str(path)
+
+    def _understand_screenshot(self, screenshot_bytes: bytes) -> str:
+        provider = self._ai_provider_for_images()
+        prompt = "Describe what is visually shown in this real browser screenshot in detail."
+        try:
+            return provider.understand_image(screenshot_bytes, prompt, media_type="image/png")
+        except GeminiProviderError as exc:
+            raise BrowserUseError(str(exc)) from exc
+
+    def _ai_provider_for_images(self) -> GeminiProvider:
+        # Screenshot understanding needs a real understand_image() call
+        # -- not yet part of the general AIProvider Protocol (only
+        # GeminiProvider implements it today, deliberately not
+        # generalized before a second real image-capable provider
+        # exists, the same discipline this codebase already applies
+        # elsewhere), so this always uses a real GeminiProvider
+        # directly regardless of which self._ai_provider was injected
+        # for text extraction.
+        return GeminiProvider(api_key=self._api_key, model=self._model)
 
     def _extract_fields(self, url: str, page_text: str, extract: dict[str, str]) -> dict[str, str]:
         """The only path in this module that makes a real AI call —

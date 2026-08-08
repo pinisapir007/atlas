@@ -57,3 +57,42 @@ def test_a_real_chatgoogle_failure_is_wrapped_loudly():
 
 def test_name_is_gemini():
     assert GeminiProvider().name == "gemini"
+
+
+def test_understand_image_returns_the_real_text_response():
+    fake_response = type("R", (), {"completion": "ATLAS VISION TEST 2026"})()
+    with patch("browser_use.llm.google.chat.ChatGoogle") as MockChatGoogle:
+        MockChatGoogle.return_value.ainvoke = AsyncMock(return_value=fake_response)
+        provider = GeminiProvider(api_key="fake-key")
+        result = provider.understand_image(b"fake-png-bytes", "What text do you see?")
+
+    assert result == "ATLAS VISION TEST 2026"
+    call_args, call_kwargs = MockChatGoogle.return_value.ainvoke.call_args
+    messages = call_args[0]
+    # real, structured content: one text part, one real image part -- not a bare string
+    assert len(messages[0].content) == 2
+
+
+def test_understand_image_without_an_api_key_raises_clearly(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    provider = GeminiProvider(api_key=None)
+    with pytest.raises(GeminiProviderError, match="GEMINI_API_KEY"):
+        provider.understand_image(b"fake-bytes", "describe this")
+
+
+def test_understand_image_structured_uses_native_output_format():
+    fake_response = type("R", (), {"completion": type("M", (), {"model_dump": lambda self: {"product": "KetoDNA"}})()})()
+    with patch("browser_use.llm.google.chat.ChatGoogle") as MockChatGoogle:
+        MockChatGoogle.return_value.ainvoke = AsyncMock(return_value=fake_response)
+        provider = GeminiProvider(api_key="fake-key")
+        result = provider.understand_image_structured(b"fake-bytes", "look at this", {"product": "the product name"})
+
+    assert result == {"product": "KetoDNA"}
+
+
+def test_understand_image_wraps_a_real_failure_loudly():
+    with patch("browser_use.llm.google.chat.ChatGoogle") as MockChatGoogle:
+        MockChatGoogle.return_value.ainvoke = AsyncMock(side_effect=RuntimeError("real vision quota exceeded"))
+        provider = GeminiProvider(api_key="fake-key")
+        with pytest.raises(GeminiProviderError, match="real vision quota exceeded"):
+            provider.understand_image(b"fake-bytes", "describe this")
