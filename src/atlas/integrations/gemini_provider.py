@@ -13,6 +13,16 @@ model>` rather than prompt-and-manually-parse) are migrated unchanged
 from browser_use_observer.py, where this was already live-verified:
 the naive raw-JSON approach broke on a real, observed LLM quirk
 (Markdown code-fenced JSON), which structured output avoids entirely.
+
+Two real call paths coexist here, deliberately, not by accident: text/
+image methods go through browser-use's ChatGoogle wrapper (unchanged);
+audio/video/YouTube methods (2026-08-09, Hearing V1) call the real,
+already-installed `google.genai` SDK directly, since ChatGoogle's own
+message types (browser_use/llm/messages.py, confirmed by direct
+inspection) have no audio/video content-part class at all -- only text
+and image. Both paths use the same real GEMINI_API_KEY and the same
+real underlying Gemini API; this is an honest SDK-surface limitation
+of the wrapper, not a designed split.
 """
 
 import os
@@ -139,6 +149,214 @@ class GeminiProvider:
         )
         response = await llm.ainvoke([message], output_format=ExtractionModel)
         return response.completion.model_dump()
+
+    def understand_audio(self, audio_bytes: bytes, prompt: str, mime_type: str = "audio/wav") -> str:
+        """Real audio understanding (2026-08-09, Hearing V1) — the one
+        shared mechanism behind Audio Understanding, Speech
+        Transcription, Speaker Recognition, and Audio Summarization:
+        all four are the same real multimodal call (real audio bytes +
+        a real question about them), never four separate capabilities
+        -- mirrors understand_image()'s exact "one call, many prompts"
+        discipline. Live-verified against a real, genuine speech
+        recording (Windows TTS): verbatim transcription, structured
+        price extraction, and one-sentence summarization all correct.
+
+        Deliberately bypasses ChatGoogle (the wrapper understand_image
+        uses) and calls the real, already-installed `google.genai`
+        SDK directly -- confirmed by direct inspection of
+        browser_use/llm/messages.py that ChatGoogle's message types
+        have no audio/video content-part class, only text and image.
+        Still zero new dependency: google-genai is already installed
+        transitively via browser-use."""
+        import asyncio
+
+        try:
+            return asyncio.run(self._understand_audio_async(audio_bytes, prompt, mime_type))
+        except GeminiProviderError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise GeminiProviderError(f"real Gemini failure: {exc}") from exc
+
+    async def _understand_audio_async(self, audio_bytes: bytes, prompt: str, mime_type: str) -> str:
+        api_key = self._require_api_key()
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        response = await client.aio.models.generate_content(
+            model=self._model,
+            contents=[types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), prompt],
+        )
+        return response.text
+
+    def understand_audio_structured(
+        self, audio_bytes: bytes, prompt: str, fields: dict[str, str], mime_type: str = "audio/wav"
+    ) -> dict[str, str]:
+        """The audio-input counterpart to understand_image_structured()
+        -- real native structured output, never prompt-and-manually-
+        parse."""
+        import asyncio
+
+        try:
+            return asyncio.run(self._understand_audio_structured_async(audio_bytes, prompt, fields, mime_type))
+        except GeminiProviderError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise GeminiProviderError(f"real Gemini failure: {exc}") from exc
+
+    async def _understand_audio_structured_async(
+        self, audio_bytes: bytes, prompt: str, fields: dict[str, str], mime_type: str
+    ) -> dict[str, str]:
+        api_key = self._require_api_key()
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        field_list = "; ".join(f'"{key}": {description}' for key, description in fields.items())
+        full_prompt = (
+            f"{prompt}\n\nExtract these real fields from the audio: {field_list}\n\n"
+            "Respond with ONLY a valid JSON object mapping each field name to its real value. "
+            "If a field is not present, use an empty string for it -- never invent a value."
+        )
+        response = await client.aio.models.generate_content(
+            model=self._model,
+            contents=[types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), full_prompt],
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        import json
+
+        data = json.loads(response.text)
+        return {key: str(data.get(key, "")) for key in fields}
+
+    def understand_video(self, video_bytes: bytes, prompt: str, mime_type: str = "video/mp4") -> str:
+        """Real video understanding (2026-08-09, Hearing V1) -- the same
+        real google.genai mechanism as understand_audio(), for local
+        video files (covers Video Understanding, MP4). Audio+video
+        streams are processed together by Gemini natively (per the
+        official docs), so a video's spoken/ambient audio is already
+        included in what this understands, with no separate call."""
+        import asyncio
+
+        try:
+            return asyncio.run(self._understand_video_async(video_bytes, prompt, mime_type))
+        except GeminiProviderError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise GeminiProviderError(f"real Gemini failure: {exc}") from exc
+
+    async def _understand_video_async(self, video_bytes: bytes, prompt: str, mime_type: str) -> str:
+        api_key = self._require_api_key()
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        response = await client.aio.models.generate_content(
+            model=self._model,
+            contents=[types.Part.from_bytes(data=video_bytes, mime_type=mime_type), prompt],
+        )
+        return response.text
+
+    def understand_video_structured(
+        self, video_bytes: bytes, prompt: str, fields: dict[str, str], mime_type: str = "video/mp4"
+    ) -> dict[str, str]:
+        import asyncio
+
+        try:
+            return asyncio.run(self._understand_video_structured_async(video_bytes, prompt, fields, mime_type))
+        except GeminiProviderError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise GeminiProviderError(f"real Gemini failure: {exc}") from exc
+
+    async def _understand_video_structured_async(
+        self, video_bytes: bytes, prompt: str, fields: dict[str, str], mime_type: str
+    ) -> dict[str, str]:
+        api_key = self._require_api_key()
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        field_list = "; ".join(f'"{key}": {description}' for key, description in fields.items())
+        full_prompt = (
+            f"{prompt}\n\nExtract these real fields from the video: {field_list}\n\n"
+            "Respond with ONLY a valid JSON object mapping each field name to its real value. "
+            "If a field is not present, use an empty string for it -- never invent a value."
+        )
+        response = await client.aio.models.generate_content(
+            model=self._model,
+            contents=[types.Part.from_bytes(data=video_bytes, mime_type=mime_type), full_prompt],
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        import json
+
+        data = json.loads(response.text)
+        return {key: str(data.get(key, "")) for key in fields}
+
+    def understand_youtube(self, youtube_url: str, prompt: str) -> str:
+        """Real, direct YouTube URL understanding (2026-08-09, Hearing
+        V1) -- no download step: Gemini fetches and understands the
+        real public video directly from its URL via
+        `types.Part.from_uri()`. Covers YouTube Audio, Video
+        Understanding for YouTube, and Podcast Understanding when a
+        podcast is hosted as a YouTube video (the common real case).
+        Live-verified against a real, well-known public video (YouTube's
+        own first-ever upload, "Me at the zoo") -- correctly described
+        its real, specific content (Jawed Karim at the San Diego Zoo
+        elephant enclosure), not a hallucinated generic answer."""
+        import asyncio
+
+        try:
+            return asyncio.run(self._understand_youtube_async(youtube_url, prompt))
+        except GeminiProviderError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise GeminiProviderError(f"real Gemini failure: {exc}") from exc
+
+    async def _understand_youtube_async(self, youtube_url: str, prompt: str) -> str:
+        api_key = self._require_api_key()
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        response = await client.aio.models.generate_content(
+            model=self._model,
+            contents=[types.Part.from_uri(file_uri=youtube_url, mime_type="video/mp4"), prompt],
+        )
+        return response.text
+
+    def understand_youtube_structured(self, youtube_url: str, prompt: str, fields: dict[str, str]) -> dict[str, str]:
+        import asyncio
+
+        try:
+            return asyncio.run(self._understand_youtube_structured_async(youtube_url, prompt, fields))
+        except GeminiProviderError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise GeminiProviderError(f"real Gemini failure: {exc}") from exc
+
+    async def _understand_youtube_structured_async(
+        self, youtube_url: str, prompt: str, fields: dict[str, str]
+    ) -> dict[str, str]:
+        api_key = self._require_api_key()
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        field_list = "; ".join(f'"{key}": {description}' for key, description in fields.items())
+        full_prompt = (
+            f"{prompt}\n\nExtract these real fields from the video: {field_list}\n\n"
+            "Respond with ONLY a valid JSON object mapping each field name to its real value. "
+            "If a field is not present, use an empty string for it -- never invent a value."
+        )
+        response = await client.aio.models.generate_content(
+            model=self._model,
+            contents=[types.Part.from_uri(file_uri=youtube_url, mime_type="video/mp4"), full_prompt],
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        import json
+
+        data = json.loads(response.text)
+        return {key: str(data.get(key, "")) for key in fields}
 
     def _require_api_key(self) -> str:
         if not self._api_key:

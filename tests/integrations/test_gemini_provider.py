@@ -96,3 +96,121 @@ def test_understand_image_wraps_a_real_failure_loudly():
         provider = GeminiProvider(api_key="fake-key")
         with pytest.raises(GeminiProviderError, match="real vision quota exceeded"):
             provider.understand_image(b"fake-bytes", "describe this")
+
+
+def _fake_genai_client(text_response=None, json_response=None):
+    """Builds a fake google.genai.Client whose aio.models.generate_content
+    returns a real-shaped response object (a .text attribute), mirroring
+    how the real SDK's response is used by every audio/video/youtube
+    method under test here."""
+    client = AsyncMock()
+    fake_response = type("R", (), {"text": json_response if json_response is not None else text_response})()
+    client.aio.models.generate_content = AsyncMock(return_value=fake_response)
+    return client
+
+
+def test_understand_audio_returns_the_real_text_response():
+    fake_client = _fake_genai_client(text_response="Atlas hearing test. The keto diet product costs $47.")
+    with patch("google.genai.Client", return_value=fake_client):
+        provider = GeminiProvider(api_key="fake-key")
+        result = provider.understand_audio(b"fake-wav-bytes", "Transcribe this audio verbatim.")
+
+    assert result == "Atlas hearing test. The keto diet product costs $47."
+
+
+def test_understand_audio_without_an_api_key_raises_clearly(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    provider = GeminiProvider(api_key=None)
+    with pytest.raises(GeminiProviderError, match="GEMINI_API_KEY"):
+        provider.understand_audio(b"fake-bytes", "transcribe this")
+
+
+def test_understand_audio_structured_parses_real_json_response():
+    fake_client = _fake_genai_client(json_response='{"price": "$47"}')
+    with patch("google.genai.Client", return_value=fake_client):
+        provider = GeminiProvider(api_key="fake-key")
+        result = provider.understand_audio_structured(b"fake-bytes", "extract the price", {"price": "the price mentioned"})
+
+    assert result == {"price": "$47"}
+
+
+def test_understand_audio_wraps_a_real_failure_loudly():
+    fake_client = AsyncMock()
+    fake_client.aio.models.generate_content = AsyncMock(side_effect=RuntimeError("real audio quota exceeded"))
+    with patch("google.genai.Client", return_value=fake_client):
+        provider = GeminiProvider(api_key="fake-key")
+        with pytest.raises(GeminiProviderError, match="real audio quota exceeded"):
+            provider.understand_audio(b"fake-bytes", "transcribe this")
+
+
+def test_understand_video_returns_the_real_text_response():
+    fake_client = _fake_genai_client(text_response="A real video showing a product demo.")
+    with patch("google.genai.Client", return_value=fake_client):
+        provider = GeminiProvider(api_key="fake-key")
+        result = provider.understand_video(b"fake-mp4-bytes", "describe this video")
+
+    assert result == "A real video showing a product demo."
+
+
+def test_understand_video_without_an_api_key_raises_clearly(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    provider = GeminiProvider(api_key=None)
+    with pytest.raises(GeminiProviderError, match="GEMINI_API_KEY"):
+        provider.understand_video(b"fake-bytes", "describe this")
+
+
+def test_understand_video_structured_parses_real_json_response():
+    fake_client = _fake_genai_client(json_response='{"product": "KetoDNA"}')
+    with patch("google.genai.Client", return_value=fake_client):
+        provider = GeminiProvider(api_key="fake-key")
+        result = provider.understand_video_structured(b"fake-bytes", "look at this", {"product": "the product shown"})
+
+    assert result == {"product": "KetoDNA"}
+
+
+def test_understand_video_wraps_a_real_failure_loudly():
+    fake_client = AsyncMock()
+    fake_client.aio.models.generate_content = AsyncMock(side_effect=RuntimeError("real video quota exceeded"))
+    with patch("google.genai.Client", return_value=fake_client):
+        provider = GeminiProvider(api_key="fake-key")
+        with pytest.raises(GeminiProviderError, match="real video quota exceeded"):
+            provider.understand_video(b"fake-bytes", "describe this")
+
+
+def test_understand_youtube_returns_the_real_text_response():
+    fake_client = _fake_genai_client(text_response="Jawed Karim at the San Diego Zoo elephant enclosure.")
+    with patch("google.genai.Client", return_value=fake_client):
+        provider = GeminiProvider(api_key="fake-key")
+        result = provider.understand_youtube("https://www.youtube.com/watch?v=jNQXAC9IVRw", "what is shown?")
+
+    assert result == "Jawed Karim at the San Diego Zoo elephant enclosure."
+    call_args, call_kwargs = fake_client.aio.models.generate_content.call_args
+    parts = call_kwargs["contents"]
+    assert parts[0].file_data.file_uri == "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+
+
+def test_understand_youtube_without_an_api_key_raises_clearly(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    provider = GeminiProvider(api_key=None)
+    with pytest.raises(GeminiProviderError, match="GEMINI_API_KEY"):
+        provider.understand_youtube("https://www.youtube.com/watch?v=abc", "describe this")
+
+
+def test_understand_youtube_structured_parses_real_json_response():
+    fake_client = _fake_genai_client(json_response='{"topic": "elephants"}')
+    with patch("google.genai.Client", return_value=fake_client):
+        provider = GeminiProvider(api_key="fake-key")
+        result = provider.understand_youtube_structured(
+            "https://www.youtube.com/watch?v=abc", "watch this", {"topic": "the main topic"}
+        )
+
+    assert result == {"topic": "elephants"}
+
+
+def test_understand_youtube_wraps_a_real_failure_loudly():
+    fake_client = AsyncMock()
+    fake_client.aio.models.generate_content = AsyncMock(side_effect=RuntimeError("real youtube quota exceeded"))
+    with patch("google.genai.Client", return_value=fake_client):
+        provider = GeminiProvider(api_key="fake-key")
+        with pytest.raises(GeminiProviderError, match="real youtube quota exceeded"):
+            provider.understand_youtube("https://www.youtube.com/watch?v=abc", "describe this")
