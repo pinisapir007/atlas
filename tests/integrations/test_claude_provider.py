@@ -42,6 +42,22 @@ def test_a_real_successful_call_returns_the_real_payload_unrenamed():
     assert args == ["claude", "-p", "Reply with exactly the single word: PONG", "--output-format", "json"]
 
 
+def test_decodes_stdout_as_utf8_not_the_os_locale_codepage():
+    # Real bug, found live (2026-08-09): subprocess.run(..., text=True)
+    # decodes stdout using locale.getpreferredencoding() -- on a
+    # Hebrew-localized Windows machine that's cp1255, not UTF-8, so any
+    # real UTF-8 response byte outside cp1255's range crashed the
+    # reader thread and silently left stdout as None (surfacing later
+    # as "the JSON object must be str, bytes or bytearray, not
+    # NoneType"). Must pass encoding="utf-8" explicitly, never rely on
+    # the platform default.
+    with patch("subprocess.run", return_value=_FakeCompletedProcess(stdout=json.dumps(_REAL_SUCCESS_ENVELOPE))) as mock_run:
+        send_task("a real task")
+
+    assert mock_run.call_args.kwargs.get("encoding") == "utf-8"
+    assert "text" not in mock_run.call_args.kwargs
+
+
 def test_raises_on_an_empty_task():
     with pytest.raises(ValueError, match="non-empty task"):
         send_task("")

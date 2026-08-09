@@ -90,6 +90,43 @@
   #report-close { float: left; background: none; border: none; color: var(--ink-dim); font-size: 20px; cursor: pointer; }
   .report-line { font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--line); }
   .report-line:last-child { border-bottom: none; }
+
+  /* ATLAS's living presence -- an honest, abstract representation (no
+     real image/video generation exists anywhere in this codebase, so
+     this is never dressed up as a photoreal avatar), driven entirely by
+     real request state: idle by default, "thinking" while a real
+     /api/converse call is in flight, "speaking" while the browser reads
+     a reply aloud. */
+  .presence-row { display: flex; gap: 20px; align-items: stretch; margin-bottom: 20px; flex-wrap: wrap; }
+  .briefing-hero { flex: 1 1 420px; }
+  .briefing-label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 10px; }
+  .briefing-label-row .briefing-label { margin-bottom: 0; }
+  .btn-speak { background: var(--surface2); border: 1px solid var(--line); border-radius: 16px; padding: 4px 12px; font-size: 12px; color: var(--ink); cursor: pointer; font-weight: 700; white-space: nowrap; }
+  .btn-speak:hover, .btn-speak.active { border-color: var(--accent); color: var(--accent); }
+  .presence-orb-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; min-width: 150px; box-shadow: 0 1px 2px var(--shadow); }
+  .presence-orb { width: 68px; height: 68px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 65%, white 35%), var(--accent) 55%, color-mix(in srgb, var(--accent) 45%, black 25%) 100%); box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 50%, transparent); animation: orb-idle 3.2s ease-in-out infinite; }
+  .presence-orb.thinking { animation: orb-thinking .85s ease-in-out infinite; box-shadow: 0 0 30px color-mix(in srgb, var(--accent) 70%, transparent); }
+  .presence-orb.speaking { animation: orb-speaking .45s ease-in-out infinite; box-shadow: 0 0 38px color-mix(in srgb, var(--accent) 85%, transparent); }
+  @keyframes orb-idle { 0%,100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.045); opacity: 1; } }
+  @keyframes orb-thinking { 0%,100% { transform: scale(.92); } 50% { transform: scale(1.09); } }
+  @keyframes orb-speaking { 0%,100% { transform: scale(1); } 30% { transform: scale(1.12); } 60% { transform: scale(.94); } }
+  .presence-state { font-size: 11.5px; color: var(--ink-dim); font-weight: 700; }
+
+  .chat-card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 20px; box-shadow: 0 1px 2px var(--shadow); }
+  .chat-log { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 14px; }
+  .chat-bubble { max-width: 80%; padding: 9px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; }
+  .chat-bubble .who { display: block; font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; opacity: .7; margin-bottom: 3px; }
+  .chat-bubble.founder { align-self: flex-start; background: var(--accent); color: var(--accent-ink); }
+  .chat-bubble.atlas { align-self: flex-end; background: var(--surface2); color: var(--ink); }
+  .chat-bubble.error { align-self: flex-end; background: transparent; border: 1px solid var(--bad); color: var(--bad); }
+  .chat-form { display: flex; gap: 8px; }
+  #chat-input { flex: 1; background: var(--surface2); border: 1px solid var(--line); border-radius: 20px; padding: 9px 16px; font-size: 13.5px; color: var(--ink); }
+  #chat-input:focus { outline: 1px solid var(--accent); }
+  .btn-mic { background: var(--surface2); border: 1px solid var(--line); border-radius: 50%; width: 38px; height: 38px; font-size: 15px; cursor: pointer; flex-shrink: 0; }
+  .btn-mic.recording { background: var(--bad); border-color: var(--bad); animation: pulse 1s infinite; }
+  .btn-mic:disabled { opacity: .35; cursor: default; }
+  .btn-send { background: var(--accent); color: var(--accent-ink); border-radius: 20px; padding: 9px 18px; font-size: 13px; font-weight: 700; border: none; cursor: pointer; flex-shrink: 0; }
+  .btn-send:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body>
@@ -108,6 +145,7 @@
     </select>
     <button class="btn-action" onclick="generateReport()">דוח מנהלים</button>
     <button class="btn-action" onclick="runTick()" id="tick-btn" title="ATLAS כבר פועל באופן עצמאי כל 30 דקות — זה רק מקדים את המחזור הבא">משוך עדכון מיידי</button>
+    <button class="btn-action" onclick="toggleVoice()" id="voice-toggle-btn" title="הפעל/כבה קול אוטומטי לתשובות ATLAS">🔊 קול</button>
   </div>
   <div id="recall-box">
     <input id="recall-input" type="text" placeholder="חפש בזיכרון... (recall)">
@@ -124,9 +162,29 @@
 </div>
 
 <div class="wrap">
-  <div class="briefing-hero">
-    <div class="briefing-label">מאז שעזבת — מה ATLAS עשה</div>
-    <div class="briefing" id="briefing">מתחבר לעבודה המתמשכת של ATLAS…</div>
+  <div class="presence-row">
+    <div class="briefing-hero">
+      <div class="briefing-label-row">
+        <div class="briefing-label">מאז שעזבת — מה ATLAS עשה</div>
+        <button class="btn-speak" id="speak-briefing-btn" onclick="speakBriefing()">🔊 השמע את התדריך</button>
+      </div>
+      <div class="briefing" id="briefing">מתחבר לעבודה המתמשכת של ATLAS…</div>
+    </div>
+    <div class="presence-orb-wrap">
+      <div class="presence-orb" id="presence-orb"></div>
+      <div class="presence-state" id="presence-state">ATLAS · ער ופעיל</div>
+    </div>
+  </div>
+
+  <div class="chat-card">
+    <h2 style="font-size:13.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--accent); margin:0 0 4px;">שיחה עם ATLAS</h2>
+    <div class="section-sub">שאל אותו כל דבר — הוא משיב מתוך המצב האמיתי שלו כרגע, לא מתסריט קבוע</div>
+    <div id="chat-log" class="chat-log"><div class="empty">עדיין לא דיברתם היום — זה בסדר, אפשר להתחיל</div></div>
+    <form id="chat-form" class="chat-form" onsubmit="return sendChat(event)">
+      <button type="button" id="mic-btn" class="btn-mic" title="דבר עם ATLAS">🎤</button>
+      <input id="chat-input" type="text" placeholder="כתוב הודעה ל-ATLAS..." autocomplete="off">
+      <button type="submit" class="btn-send" id="chat-send-btn">שלח</button>
+    </form>
   </div>
 
   <div class="grid">
@@ -203,12 +261,129 @@ function fmtWhen(iso) {
   try { return new Date(iso).toLocaleString('he-IL'); } catch (e) { return iso; }
 }
 
+// --- ATLAS's living presence: idle / thinking / speaking, driven only
+// by real request state (a real /api/converse call in flight, a real
+// browser utterance playing) -- never animated for decoration alone. ---
+function setPresence(mode, label) {
+  const orb = $('presence-orb');
+  orb.classList.remove('thinking', 'speaking');
+  if (mode !== 'idle') orb.classList.add(mode);
+  $('presence-state').textContent = label || (mode === 'thinking' ? 'ATLAS חושב...' : mode === 'speaking' ? 'ATLAS מדבר...' : 'ATLAS · ער ופעיל');
+}
+
+// --- Voice, entirely browser-native (Web Speech API) -- zero new
+// dependency, zero server involvement, best-effort and silently
+// degrades on a browser/OS without it, the same "optional if available,
+// never blocks" discipline speech.py already established server-side. ---
+let voiceEnabled = true;
+function toggleVoice() {
+  voiceEnabled = !voiceEnabled;
+  $('voice-toggle-btn').textContent = voiceEnabled ? '🔊 קול' : '🔇 קול';
+  $('voice-toggle-btn').classList.toggle('active', voiceEnabled);
+  if (!voiceEnabled && window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+function speak(text) {
+  if (!text || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = 'he-IL';
+  utter.onstart = () => setPresence('speaking');
+  utter.onend = () => setPresence('idle');
+  utter.onerror = () => setPresence('idle');
+  window.speechSynthesis.speak(utter);
+}
+
+let lastBriefing = '';
+function speakBriefing() { speak(lastBriefing); }
+
+let recognizer = null;
+function initMic() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) { $('mic-btn').disabled = true; $('mic-btn').title = 'זיהוי קול אינו נתמך בדפדפן הזה'; return; }
+  recognizer = new Recognition();
+  recognizer.lang = 'he-IL';
+  recognizer.interimResults = false;
+  recognizer.maxAlternatives = 1;
+  recognizer.onresult = (e) => {
+    $('chat-input').value = e.results[0][0].transcript;
+    $('chat-input').focus();
+  };
+  recognizer.onend = () => $('mic-btn').classList.remove('recording');
+  recognizer.onerror = () => $('mic-btn').classList.remove('recording');
+}
+function toggleMic() {
+  if (!recognizer) return;
+  if ($('mic-btn').classList.contains('recording')) { recognizer.stop(); return; }
+  $('mic-btn').classList.add('recording');
+  try { recognizer.start(); } catch (e) { $('mic-btn').classList.remove('recording'); }
+}
+
+// --- Real conversation with ATLAS: a genuine, grounded reply from a
+// real AI backend (server-side), never a scripted response. Each turn
+// costs real money and real seconds server-side -- deliberately only
+// ever triggered by an explicit founder action (typed/spoken message +
+// send), never by the passive 5-second live-state poll. ---
+function appendChatBubble(who, text, isError) {
+  const log = $('chat-log');
+  const empty = log.querySelector('.empty');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'chat-bubble ' + (isError ? 'error' : who);
+  div.innerHTML = `<span class="who">${who === 'founder' ? 'אתה' : isError ? 'שגיאה' : 'ATLAS'}</span>${esc(text)}`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendChat(event) {
+  event.preventDefault();
+  const input = $('chat-input');
+  const message = input.value.trim();
+  if (!message) return false;
+  input.value = '';
+  appendChatBubble('founder', message, false);
+  $('chat-send-btn').disabled = true;
+  setPresence('thinking');
+  try {
+    const res = await fetch('/api/converse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) });
+    const data = await res.json();
+    if (res.ok) {
+      appendChatBubble('atlas', data.reply, false);
+      if (voiceEnabled) speak(data.reply); else setPresence('idle');
+    } else {
+      appendChatBubble('atlas', data.error || 'ATLAS אינו זמין כרגע', true);
+      setPresence('idle');
+    }
+  } catch (e) {
+    appendChatBubble('atlas', 'החיבור ל-ATLAS נכשל', true);
+    setPresence('idle');
+  } finally {
+    $('chat-send-btn').disabled = false;
+  }
+  return false;
+}
+
+async function loadConversationHistory() {
+  try {
+    const res = await fetch('/api/conversations');
+    const data = await res.json();
+    if (data.entries && data.entries.length) {
+      $('chat-log').innerHTML = '';
+      data.entries.forEach(e => {
+        appendChatBubble('founder', e.input_line, false);
+        appendChatBubble('atlas', e.response_summary, false);
+      });
+    }
+  } catch (e) { /* real history is a nice-to-have; a cold chat panel is a safe fallback */ }
+}
+
 function render(state) {
   // ATLAS's own real last-recorded-action timestamp -- never the
   // browser's clock, so this reflects when ATLAS last actually did
   // something, not when this tab last happened to refresh.
   $('last-active').textContent = fmtWhen(state.atlas_last_active);
-  $('briefing').textContent = state.briefing || '';
+  lastBriefing = state.briefing || '';
+  $('briefing').textContent = lastBriefing;
 
   // approvals -- ATLAS has already reasoned through each of these;
   // the founder is authorizing a conclusion, not starting from zero.
@@ -357,6 +532,9 @@ async function generateReport() {
 
 function closeReport() { $('report-modal').classList.remove('open'); }
 
+$('mic-btn').addEventListener('click', toggleMic);
+initMic();
+loadConversationHistory();
 refresh();
 let connLost = false;
 function setConnState(lost) {

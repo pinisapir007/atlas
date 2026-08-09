@@ -23,6 +23,7 @@ import json
 from pathlib import Path
 
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 from sse_starlette.sse import EventSourceResponse
@@ -41,10 +42,54 @@ from atlas.brain.console import (
     summarize_department_report,
 )
 from atlas.brain.recall import recall
+from atlas.integrations.ai_provider_registry import get_ai_provider
+from atlas.integrations.base import AIProvider
 
 POLL_INTERVAL_SECONDS = 5
 
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "index.html"
+
+# First-person grounding prompt for real conversational presence
+# (2026-08-09) -- the mechanism behind "ATLAS receives me, briefs me,
+# answers my questions." Deliberately instructs the model to speak only
+# from the real facts handed to it (the same build_briefing()/pending-
+# approvals data already shown on the page, never a second,
+# independently-guessed picture) and to say "I don't know" rather than
+# invent -- the Prime Directive (ATLAS_CONSTITUTION.md Article III)
+# applies to this conversational surface exactly as it does everywhere
+# else in this codebase, not just to Findings/Decisions.
+_ATLAS_PERSONA_PROMPT = (
+    "You are ATLAS, the autonomous AI CEO of this real company. You are "
+    "speaking directly with the founder, in his office. Reply in the same "
+    "language he used. Speak in first person, as a real CEO would -- "
+    "confident but honest, and never invent a fact, number, goal, or "
+    "approval that isn't in your real state below. If something isn't "
+    "there, say so plainly instead of guessing. Keep the reply "
+    "conversational and concise -- a few real sentences, not a report "
+    "dump.\n\n"
+    "Your real current state:\n{context}\n\n"
+    "The founder just said: \"{message}\"\n\n"
+    "Reply as ATLAS, directly to him:"
+)
+
+
+def _conversation_context(brain: CEOBrain) -> str:
+    """Compact, real grounding facts for a conversational turn -- reuses
+    build_briefing() (the same real "since you were last here" narrative
+    already on the page) plus the real pending-approval descriptions
+    (build_console_view's own shape, not a re-derived one), so ATLAS's
+    spoken answers are grounded in exactly the facts the page already
+    shows."""
+    lines = [build_briefing(brain)]
+    pending = build_console_view(brain)["pending_approvals"]
+    if pending:
+        lines.append(
+            "\nFull detail on the item(s) awaiting approval mentioned in the "
+            "summary above (this is the same real list, not additional items):"
+        )
+        for task in pending[:10]:
+            lines.append(f"- [{task['category']}] {task['description']}")
+    return "\n".join(lines)
 
 
 def _real_decisions(brain: CEOBrain, limit: int = 8) -> list[dict]:
@@ -117,11 +162,15 @@ def _real_state(brain: CEOBrain) -> dict:
     }
 
 
-def create_app(brain: CEOBrain | None = None) -> Starlette:
+def create_app(brain: CEOBrain | None = None, ai_provider: AIProvider | None = None) -> Starlette:
     """Builds the real, real ASGI app. `brain` is injectable — the same
     dependency-injection discipline every other real component in this
-    codebase already uses, so tests never touch real production state."""
+    codebase already uses, so tests never touch real production state.
+    `ai_provider` is injectable for the same reason: a real Claude CLI
+    call costs real money and real seconds (see claude_provider.py's own
+    docstring) — tests inject a fake, never make a real call."""
     brain = brain if brain is not None else CEOBrain()
+    ai_provider = ai_provider if ai_provider is not None else get_ai_provider("claude")
 
     async def index(request):
         return HTMLResponse(_TEMPLATE_PATH.read_text(encoding="utf-8"))
@@ -183,6 +232,43 @@ def create_app(brain: CEOBrain | None = None) -> Starlette:
         )
         return JSONResponse({"hits": [{"store": h.store, "id": h.id, "summary": h.summary, "created_at": h.created_at} for h in hits]})
 
+    async def api_converse(request):
+        """The real conversational core: a genuine, grounded reply from
+        a real AI backend speaking as ATLAS -- not a scripted response.
+        Deliberately a distinct, on-demand POST the founder must
+        actively trigger (typing/speaking a message), never something
+        the 5-second SSE poll or any background loop calls, since a
+        real call here has a real cost (see claude_provider.py) every
+        single time. Every real turn is recorded via ConversationMemory
+        -- the same durable record the REPL/app already keep."""
+        body = await request.json()
+        message = (body.get("message") or "").strip()
+        if not message:
+            return JSONResponse({"error": "a real, non-empty message is required"}, status_code=400)
+
+        prompt = _ATLAS_PERSONA_PROMPT.format(context=_conversation_context(brain), message=message)
+        try:
+            reply = await run_in_threadpool(ai_provider.complete, prompt)
+        except Exception as exc:
+            return JSONResponse({"error": f"ATLAS is not reachable right now: {exc}"}, status_code=502)
+
+        brain.conversations.record_turn(message, reply)
+        return JSONResponse({"reply": reply})
+
+    async def api_conversations(request):
+        """Real recent conversation history -- so opening Headquarters
+        never starts from a cold, empty chat panel; the founder sees
+        real continuity with what he and ATLAS already discussed."""
+        entries = brain.conversations.recent(limit=20)
+        return JSONResponse(
+            {
+                "entries": [
+                    {"id": e.id, "input_line": e.input_line, "response_summary": e.response_summary, "created_at": e.created_at}
+                    for e in entries
+                ]
+            }
+        )
+
     async def api_events(request):
         async def stream():
             while True:
@@ -202,6 +288,8 @@ def create_app(brain: CEOBrain | None = None) -> Starlette:
             Route("/api/tick", api_tick, methods=["POST"]),
             Route("/api/review/{period}", api_review, methods=["POST"]),
             Route("/api/recall", api_recall),
+            Route("/api/converse", api_converse, methods=["POST"]),
+            Route("/api/conversations", api_conversations),
             Route("/api/events", api_events),
         ]
     )

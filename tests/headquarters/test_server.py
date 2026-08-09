@@ -244,3 +244,82 @@ def test_api_review_rejects_an_invalid_period(tmp_path):
 
     assert response.status_code == 400
     assert "error" in response.json()
+
+
+class _FakeAIProvider:
+    """Fake for the real AIProvider Protocol -- a real Claude CLI call
+    costs real money and real seconds, so tests never make one."""
+
+    name = "fake"
+
+    def __init__(self, reply: str = "Good morning. Here is what I did.", raise_error: bool = False):
+        self._reply = reply
+        self._raise_error = raise_error
+        self.last_prompt = None
+
+    def complete(self, prompt: str) -> str:
+        self.last_prompt = prompt
+        if self._raise_error:
+            raise RuntimeError("simulated real backend failure")
+        return self._reply
+
+    def complete_structured(self, prompt: str, fields: dict) -> dict:
+        raise NotImplementedError
+
+
+def test_api_converse_returns_a_real_grounded_reply_and_records_it(tmp_path):
+    brain = _isolated_brain(tmp_path)
+    goal = Goal(description="grow the real keto affiliate business", status="active")
+    brain.memory.save_goal(goal)
+    task = Task(goal_id=goal.id, description="launch the top-ranked influencer", reversible=False, category="hands_execute")
+    task.status = "pending_approval"
+    brain.memory.save_task(task)
+    fake_ai = _FakeAIProvider(reply="Good morning. One item awaits your approval.")
+    client = TestClient(create_app(brain, ai_provider=fake_ai))
+
+    response = client.post("/api/converse", json={"message": "בוקר טוב, מה קרה?"})
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["reply"] == "Good morning. One item awaits your approval."
+    # the real pending approval's own description was actually included
+    # in the grounding context sent to the real backend -- not a blind call
+    assert "launch the top-ranked influencer" in fake_ai.last_prompt
+    assert "בוקר טוב" in fake_ai.last_prompt
+    recorded = brain.conversations.recent(limit=1)
+    assert recorded[0].input_line == "בוקר טוב, מה קרה?"
+    assert recorded[0].response_summary == "Good morning. One item awaits your approval."
+
+
+def test_api_converse_rejects_an_empty_message(tmp_path):
+    brain = _isolated_brain(tmp_path)
+    client = TestClient(create_app(brain, ai_provider=_FakeAIProvider()))
+
+    response = client.post("/api/converse", json={"message": "   "})
+
+    assert response.status_code == 400
+    assert "error" in response.json()
+
+
+def test_api_converse_is_honest_about_a_real_backend_failure(tmp_path):
+    brain = _isolated_brain(tmp_path)
+    client = TestClient(create_app(brain, ai_provider=_FakeAIProvider(raise_error=True)))
+
+    response = client.post("/api/converse", json={"message": "hello"})
+
+    assert response.status_code == 502
+    assert "ATLAS is not reachable" in response.json()["error"]
+    assert brain.conversations.recent() == []
+
+
+def test_api_conversations_reflects_real_recorded_turns(tmp_path):
+    brain = _isolated_brain(tmp_path)
+    brain.conversations.record_turn("hello ATLAS", "hello, founder")
+    client = TestClient(create_app(brain, ai_provider=_FakeAIProvider()))
+
+    response = client.get("/api/conversations")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert len(data["entries"]) == 1
+    assert data["entries"][0]["input_line"] == "hello ATLAS"

@@ -63,7 +63,8 @@ def send_task(task: str, timeout_seconds: float = 120.0) -> dict:
         completed = subprocess.run(
             [CLAUDE_CLI_COMMAND, "-p", task, "--output-format", "json"],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_seconds,
         )
     except FileNotFoundError as exc:
