@@ -86,13 +86,24 @@ def find_stale_kpis(brain: CEOBrain, threshold_hours: float = DEFAULT_STALE_KPI_
     return stale
 
 
-def find_warnings(brain: CEOBrain) -> list[str]:
+def find_warnings(brain: CEOBrain, view: dict | None = None) -> list[str]:
     """Requirement: clearly surface MAYA stopped, Revenue idle, pending
     redesign proposals, and stale KPIs — reusing exactly the data every
     other command already reads (department report()s, memory.proposals(),
-    KPIRegistry history), no new detection mechanism."""
+    KPIRegistry history), no new detection mechanism.
+
+    `view` is an optional, already-computed build_console_view(brain) —
+    real bug, found live (2026-08-09) against real production-scale data
+    (1771 tasks, a 10MB brain.json): every caller that needs both a view
+    and its warnings (get_system_health, build_briefing, and Headquarters'
+    own _real_state) was silently recomputing build_console_view() from
+    scratch again here, several times over per single request, each pass
+    costing real seconds at that scale — compounding into a genuinely
+    unresponsive server once a real SSE connection re-ran the whole chain
+    every 5 seconds. Passing an already-computed `view` through skips the
+    recomputation; omitting it (every existing caller) is unchanged."""
     warnings: list[str] = []
-    view = build_console_view(brain)
+    view = view if view is not None else build_console_view(brain)
 
     maya_report = view["departments"].get("maya")
     if isinstance(maya_report, dict) and maya_report.get("status") == "stopped":
@@ -119,11 +130,14 @@ def recent_activity(brain: CEOBrain, limit: int = 10) -> list[dict]:
     return brain.memory.log()[-limit:]
 
 
-def build_briefing(brain: CEOBrain) -> str:
+def build_briefing(brain: CEOBrain, view: dict | None = None, warnings: list[str] | None = None) -> str:
     """A narrative reading of the exact same state build_console_view/
-    find_warnings already compute — presentation only, no new logic."""
-    view = build_console_view(brain)
-    warnings = find_warnings(brain)
+    find_warnings already compute — presentation only, no new logic.
+    `view`/`warnings` are optional, already-computed values (see
+    find_warnings' docstring for why this matters at real production
+    scale) — omitting either preserves the exact prior behavior."""
+    view = view if view is not None else build_console_view(brain)
+    warnings = warnings if warnings is not None else find_warnings(brain, view)
     activity = recent_activity(brain, limit=5)
 
     lines = ["כן פיני, מאז ההפעלה האחרונה ביצעתי...", ""]
@@ -175,12 +189,14 @@ def get_campaigns(brain: CEOBrain) -> list[dict]:
     return [o for o in get_opportunities(brain) if isinstance(o, dict) and o.get("stage") in CAMPAIGN_STAGES]
 
 
-def get_system_health(brain: CEOBrain) -> dict:
+def get_system_health(brain: CEOBrain, warnings: list[str] | None = None) -> dict:
     """Combines warnings with task-status counts — still just reading
-    existing Task/Goal state, no new health-tracking mechanism."""
+    existing Task/Goal state, no new health-tracking mechanism. `warnings`
+    is an optional, already-computed find_warnings(brain) result (see
+    find_warnings' docstring) — omitting it preserves prior behavior."""
     tasks = brain.memory.tasks()
     return {
-        "warnings": find_warnings(brain),
+        "warnings": warnings if warnings is not None else find_warnings(brain),
         "tasks_blocked": sum(1 for t in tasks if t.status == "blocked"),
         "tasks_failed": sum(1 for t in tasks if t.status == "failed"),
         "tasks_pending_approval": sum(1 for t in tasks if t.status == "pending_approval"),

@@ -20,6 +20,7 @@ than it is.
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -42,7 +43,15 @@ from atlas.brain.console import (
     summarize_department_report,
 )
 from atlas.brain.recall import recall
+from atlas.integrations.affiliate_provider_placeholders import (
+    AliExpressAffiliateProvider,
+    AmazonAssociatesProvider,
+    CJProvider,
+    ImpactProvider,
+    ShareASaleProvider,
+)
 from atlas.integrations.ai_provider_registry import get_ai_provider
+from atlas.integrations.registry import PROVIDERS as COMMERCE_PROVIDERS
 from atlas.integrations.base import AIProvider
 
 POLL_INTERVAL_SECONDS = 5
@@ -120,6 +129,74 @@ def _real_success_laws(brain: CEOBrain, limit: int = 8) -> list[dict]:
     ]
 
 
+# Real, structural facts already written down elsewhere in this codebase
+# (never invented for this panel): the 5 affiliate networks named as
+# honest, zero-implementation placeholders in
+# atlas.integrations.affiliate_provider_placeholders, and 5 more
+# platforms named as real, documented future targets with genuinely no
+# implementation anywhere -- YouTube/TikTok/Instagram/Facebook
+# (atlas.integrations.base.ContentPublisher's own docstring) and Shopify
+# (CLAUDE.md's own "Shopify Store — Credential-blocked" finding). The
+# founder's explicit instruction (2026-08-09): show a not-yet-connected
+# platform honestly rather than hiding it, never fake a green status.
+_PLACEHOLDER_AFFILIATE_PROVIDERS = [
+    AmazonAssociatesProvider(),
+    AliExpressAffiliateProvider(),
+    CJProvider(),
+    ImpactProvider(),
+    ShareASaleProvider(),
+]
+_PLACEHOLDER_AFFILIATE_LABELS = {
+    "amazon_associates": "Amazon Associates",
+    "aliexpress_affiliate": "AliExpress Affiliate",
+    "cj": "CJ Affiliate",
+    "impact": "Impact",
+    "shareasale": "ShareASale",
+}
+_UNBUILT_NAMED_PLATFORMS = [
+    {"id": "youtube", "label": "YouTube", "kind": "פרסום תוכן"},
+    {"id": "tiktok", "label": "TikTok", "kind": "פרסום תוכן"},
+    {"id": "instagram", "label": "Instagram", "kind": "פרסום תוכן"},
+    {"id": "facebook", "label": "Facebook", "kind": "פרסום תוכן"},
+    {"id": "shopify", "label": "Shopify", "kind": "חנות מכירות"},
+]
+
+
+def _real_platform_connections() -> list[dict]:
+    """Every platform ATLAS has real code for, or has explicitly and
+    honestly named as a future target somewhere real in this codebase —
+    never a fabricated wishlist, and never a fabricated "connected"
+    status. Three real, distinct states, not just a binary: "connected"
+    (a real class AND a real credential is actually configured in this
+    environment right now — checked live via os.environ, never assumed),
+    "code_ready" (a real class exists but no credential is configured
+    yet), and "not_built" (no real integration code exists at all)."""
+    result: list[dict] = []
+    for provider in COMMERCE_PROVIDERS.values():
+        api_key_env = getattr(provider, "_API_KEY_ENV", None)
+        connected = bool(api_key_env and os.environ.get(api_key_env))
+        result.append(
+            {
+                "id": provider.name,
+                "label": provider.name.capitalize(),
+                "kind": "אפיליאייט / מסחר",
+                "status": "connected" if connected else "code_ready",
+            }
+        )
+    for provider in _PLACEHOLDER_AFFILIATE_PROVIDERS:
+        result.append(
+            {
+                "id": provider.name,
+                "label": _PLACEHOLDER_AFFILIATE_LABELS.get(provider.name, provider.name),
+                "kind": "אפיליאייט",
+                "status": "not_built",
+            }
+        )
+    for platform in _UNBUILT_NAMED_PLATFORMS:
+        result.append({**platform, "status": "not_built"})
+    return result
+
+
 def _real_active_asset_ids(brain: CEOBrain) -> list[str]:
     """Which real departments/assets have real work in flight right now
     -- Task.assigned_asset_id for every task whose real status is
@@ -147,8 +224,22 @@ def _real_last_active(activity: list[dict], decisions: list[dict]) -> str | None
 def _real_state(brain: CEOBrain) -> dict:
     """One real, honest snapshot of everything ATLAS currently tracks —
     the exact same functions every CLI command already reads, never a
-    second, parallel view of the same state."""
+    second, parallel view of the same state.
+
+    Real bug, found live (2026-08-09) against real production-scale data
+    (1771 tasks, a 10MB brain.json): this used to call find_warnings(),
+    get_system_health(), and build_briefing() with no arguments, and each
+    of those independently recomputed build_console_view() (and, for
+    build_briefing, find_warnings() too) from scratch internally --
+    5 total build_console_view() calls and 3 total find_warnings() calls
+    per single _real_state() invocation. At real scale that was several
+    seconds each, compounding into tens of seconds per request -- and
+    since the SSE stream below re-ran this every 5 seconds on the same
+    single-threaded event loop, a real connected browser tab left the
+    entire server unable to answer even the plain index page. `view`/
+    `warnings` are now computed exactly once and threaded through."""
     view = build_console_view(brain)
+    warnings = find_warnings(brain, view)
     departments = {
         asset_id: {"raw": report, "summary": summarize_department_report(report)}
         for asset_id, report in view["departments"].items()
@@ -161,17 +252,18 @@ def _real_state(brain: CEOBrain) -> dict:
         "blocked": view["blocked"],
         "departments": departments,
         "active_asset_ids": _real_active_asset_ids(brain),
+        "platform_connections": _real_platform_connections(),
         "kpis": view["kpis"],
         "cash_flow": view["cash_flow"],
-        "warnings": find_warnings(brain),
+        "warnings": warnings,
         "activity": activity,
-        "system_health": get_system_health(brain),
+        "system_health": get_system_health(brain, warnings),
         "queue": get_queue(brain),
         "campaigns": get_campaigns(brain),
         "opportunities": get_opportunities(brain),
         "decisions": decisions,
         "success_laws": _real_success_laws(brain),
-        "briefing": build_briefing(brain),
+        "briefing": build_briefing(brain, view, warnings),
         "atlas_last_active": _real_last_active(activity, decisions),
     }
 
@@ -189,13 +281,24 @@ def create_app(brain: CEOBrain | None = None, ai_provider: AIProvider | None = N
     async def index(request):
         return HTMLResponse(_TEMPLATE_PATH.read_text(encoding="utf-8"))
 
+    # Every handler below does real, synchronous, potentially
+    # multi-second work (reading/parsing real store files, dispatching
+    # to real assets) against a single asyncio event loop shared by
+    # every concurrent connection -- including the SSE stream further
+    # down, which re-runs _real_state() every 5 seconds for as long as
+    # a real browser tab is open. Real bug, found live (2026-08-09): none
+    # of this was ever offloaded to a thread, so one real request could
+    # (and did, against real production-scale data) block every other
+    # request, including the plain index page, for as long as it ran.
+    # run_in_threadpool matches the discipline api_converse already
+    # established for the AI provider call.
     async def api_state(request):
-        return JSONResponse(_real_state(brain))
+        return JSONResponse(await run_in_threadpool(_real_state, brain))
 
     async def api_approve(request):
         task_id = request.path_params["task_id"]
         try:
-            task = brain.approve(task_id)
+            task = await run_in_threadpool(brain.approve, task_id)
         except KeyError as exc:
             return JSONResponse({"error": str(exc)}, status_code=404)
         return JSONResponse({"id": task.id, "status": task.status})
@@ -203,7 +306,7 @@ def create_app(brain: CEOBrain | None = None, ai_provider: AIProvider | None = N
     async def api_reject(request):
         task_id = request.path_params["task_id"]
         try:
-            task = brain.reject(task_id)
+            task = await run_in_threadpool(brain.reject, task_id)
         except KeyError as exc:
             return JSONResponse({"error": str(exc)}, status_code=404)
         return JSONResponse({"id": task.id, "status": task.status})
@@ -212,8 +315,8 @@ def create_app(brain: CEOBrain | None = None, ai_provider: AIProvider | None = N
         """Runs the real operational cycle right now -- the exact same
         CEOBrain.tick() the real Windows Scheduled Task calls every 30
         minutes. A real CEO shouldn't have to wait for the clock."""
-        brain.tick()
-        return JSONResponse(_real_state(brain))
+        await run_in_threadpool(brain.tick)
+        return JSONResponse(await run_in_threadpool(_real_state, brain))
 
     async def api_review(request):
         """Runs the real strategic review cycle for a real period --
@@ -222,7 +325,7 @@ def create_app(brain: CEOBrain | None = None, ai_provider: AIProvider | None = N
         deliberate POST action, never run silently in the background."""
         period = request.path_params["period"]
         try:
-            report = brain.review(period)
+            report = await run_in_threadpool(brain.review, period)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
         return JSONResponse(report)
@@ -231,7 +334,8 @@ def create_app(brain: CEOBrain | None = None, ai_provider: AIProvider | None = N
         query = request.query_params.get("q", "")
         if not query:
             return JSONResponse({"hits": []})
-        hits = recall(
+        hits = await run_in_threadpool(
+            recall,
             query,
             memory=brain.memory,
             knowledge=brain.knowledge,
@@ -288,7 +392,8 @@ def create_app(brain: CEOBrain | None = None, ai_provider: AIProvider | None = N
             while True:
                 if await request.is_disconnected():
                     break
-                yield {"event": "state", "data": json.dumps(_real_state(brain))}
+                state = await run_in_threadpool(_real_state, brain)
+                yield {"event": "state", "data": json.dumps(state)}
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
         return EventSourceResponse(stream())

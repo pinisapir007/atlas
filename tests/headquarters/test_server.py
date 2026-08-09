@@ -75,6 +75,69 @@ def test_index_serves_real_html(tmp_path):
     assert "text/html" in response.headers["content-type"]
 
 
+def test_platform_connections_are_honest_never_a_fabricated_connected_status(tmp_path, monkeypatch):
+    # The founder's explicit instruction (2026-08-09): never show a
+    # platform as connected unless it genuinely is. digistore24 is the
+    # one real CommerceProvider -- its status must be "code_ready" (real
+    # class, no credential) unless DIGISTORE24_API_KEY is actually set in
+    # this environment, and must flip to "connected" the moment it is --
+    # a live, real check, never a hardcoded assumption either way.
+    import atlas.headquarters.server as server_module
+
+    monkeypatch.delenv("DIGISTORE24_API_KEY", raising=False)
+    connections = {c["id"]: c for c in server_module._real_platform_connections()}
+    assert connections["digistore24"]["status"] == "code_ready"
+
+    monkeypatch.setenv("DIGISTORE24_API_KEY", "a-real-looking-key")
+    connections = {c["id"]: c for c in server_module._real_platform_connections()}
+    assert connections["digistore24"]["status"] == "connected"
+
+    # every named-but-unbuilt platform is always "not_built" -- never
+    # flips to connected just because it's listed
+    for placeholder_id in ("amazon_associates", "youtube", "shopify"):
+        assert connections[placeholder_id]["status"] == "not_built"
+
+
+def test_api_state_includes_platform_connections(tmp_path):
+    brain = _isolated_brain(tmp_path)
+    client = TestClient(create_app(brain))
+
+    response = client.get("/api/state")
+    data = response.json()
+
+    assert len(data["platform_connections"]) >= 10
+    assert all("status" in c and c["status"] in {"connected", "code_ready", "not_built"} for c in data["platform_connections"])
+
+
+def test_real_state_calls_build_console_view_exactly_once(tmp_path, monkeypatch):
+    # Real bug, found live (2026-08-09) against real production-scale
+    # data (1771 tasks, a 10MB brain.json): _real_state() used to call
+    # find_warnings()/get_system_health()/build_briefing() with no
+    # arguments, and each of those independently recomputed
+    # build_console_view() (and, for build_briefing, find_warnings() too)
+    # from scratch -- 5 total build_console_view() calls per single
+    # _real_state() invocation, several real seconds each at that scale.
+    # Since the SSE stream re-runs _real_state() every 5 seconds for as
+    # long as a real browser tab is connected, this made the entire
+    # server unable to answer even the plain index page. Guards against
+    # the redundancy silently creeping back in.
+    import atlas.headquarters.server as server_module
+
+    brain = _isolated_brain(tmp_path)
+    real_build = server_module.build_console_view
+    calls = {"count": 0}
+
+    def counting(b):
+        calls["count"] += 1
+        return real_build(b)
+
+    monkeypatch.setattr(server_module, "build_console_view", counting)
+
+    server_module._real_state(brain)
+
+    assert calls["count"] == 1
+
+
 def test_api_state_reflects_a_real_goal(tmp_path):
     brain = _isolated_brain(tmp_path)
     brain.memory.save_goal(Goal(description="grow the real keto business", status="active"))

@@ -200,3 +200,66 @@ def test_build_briefing_includes_hebrew_opener_and_current_state(tmp_path, monke
     assert "Grow affiliate revenue" in briefing
     assert "active goal" in briefing
     assert "need your approval" in briefing
+
+
+def _counting_build_console_view(monkeypatch, brain):
+    """Wraps the real build_console_view with a call counter -- proves a
+    function actually reused a passed-in `view`/`warnings` instead of
+    silently recomputing it, the real bug found live (2026-08-09) against
+    production-scale data: find_warnings/get_system_health/build_briefing
+    were each independently recomputing build_console_view() (and, for
+    build_briefing, find_warnings() too) from scratch."""
+    import atlas.brain.console as console_module
+
+    real_build = console_module.build_console_view
+    calls = {"count": 0}
+
+    def counting(b):
+        calls["count"] += 1
+        return real_build(b)
+
+    monkeypatch.setattr(console_module, "build_console_view", counting)
+    return calls
+
+
+def test_find_warnings_reuses_a_passed_in_view_instead_of_recomputing(tmp_path, monkeypatch):
+    brain = _brain(tmp_path)
+    view = build_console_view(brain)
+    calls = _counting_build_console_view(monkeypatch, brain)
+
+    find_warnings(brain, view)
+
+    assert calls["count"] == 0
+
+
+def test_find_warnings_computes_its_own_view_when_none_is_passed(tmp_path, monkeypatch):
+    brain = _brain(tmp_path)
+    calls = _counting_build_console_view(monkeypatch, brain)
+
+    find_warnings(brain)
+
+    assert calls["count"] == 1
+
+
+def test_get_system_health_reuses_passed_in_warnings(tmp_path):
+    from atlas.brain.console import get_system_health
+
+    brain = _brain(tmp_path)
+    sentinel_warnings = ["a pre-computed real warning"]
+
+    health = get_system_health(brain, sentinel_warnings)
+
+    assert health["warnings"] == sentinel_warnings
+
+
+def test_build_briefing_reuses_a_passed_in_view_and_warnings_instead_of_recomputing(tmp_path, monkeypatch):
+    brain = _brain(tmp_path)
+    brain.add_goal("Grow affiliate revenue", priority=1)
+    view = build_console_view(brain)
+    warnings = find_warnings(brain, view)
+    calls = _counting_build_console_view(monkeypatch, brain)
+
+    briefing = build_briefing(brain, view, warnings)
+
+    assert calls["count"] == 0
+    assert "Grow affiliate revenue" in briefing
