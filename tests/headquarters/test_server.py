@@ -87,6 +87,51 @@ def test_api_state_reflects_a_real_goal(tmp_path):
     assert len(data["goals"]) == 1
     assert data["goals"][0]["description"] == "grow the real keto business"
     assert "briefing" in data
+    assert data["decisions"] == []
+    assert data["success_laws"] == []
+
+
+def test_api_state_departments_are_pre_summarized_never_raw_json_only(tmp_path):
+    brain = _isolated_brain(tmp_path)
+    client = TestClient(create_app(brain))
+
+    response = client.get("/api/state")
+    data = response.json()
+
+    for report in data["departments"].values():
+        assert "summary" in report and "raw" in report
+
+
+def test_api_state_reflects_a_real_decision(tmp_path):
+    from atlas.brain.decisions import Decision
+
+    brain = _isolated_brain(tmp_path)
+    brain.decisions.save_decision(Decision(category="affiliate", verdict="invest", confidence=0.8, factors={}, reasoning="real evidence"))
+    client = TestClient(create_app(brain))
+
+    response = client.get("/api/state")
+    data = response.json()
+
+    assert len(data["decisions"]) == 1
+    assert data["decisions"][0]["category"] == "affiliate"
+    assert data["decisions"][0]["verdict"] == "invest"
+
+
+def test_api_state_reflects_a_real_success_law_track_record(tmp_path):
+    from atlas.brain.models import SuccessLaw
+
+    brain = _isolated_brain(tmp_path)
+    law = SuccessLaw(principle="personalization beats generic advice", source_description="real evidence", evidence_finding_ids=[])
+    brain.knowledge.save_success_law(law)
+    client = TestClient(create_app(brain))
+
+    response = client.get("/api/state")
+    data = response.json()
+
+    assert len(data["success_laws"]) == 1
+    assert data["success_laws"][0]["principle"] == "personalization beats generic advice"
+    assert data["success_laws"][0]["evidence_backed"] is False
+    assert data["success_laws"][0]["track_record"] is None
 
 
 def test_api_approve_resolves_a_real_pending_task(tmp_path):

@@ -60,6 +60,14 @@
   .recall-hit { font-size: 12.5px; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .recall-hit:last-child { border-bottom: none; }
   .recall-hit .store { color: var(--accent); font-weight: 700; font-size: 10.5px; text-transform: uppercase; }
+
+  .decision-row, .law-row, .queue-row, .campaign-row, .opp-row { font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .decision-row:last-child, .law-row:last-child, .queue-row:last-child, .campaign-row:last-child, .opp-row:last-child { border-bottom: none; }
+  .verdict-pill { font-size: 10.5px; font-weight: 800; padding: 2px 8px; border-radius: 10px; background: var(--surface2); color: var(--accent); margin-left: 6px; }
+  .law-row .meta, .decision-row .meta, .opp-row .meta { color: var(--ink-dim); font-size: 11.5px; margin-top: 3px; }
+  .badge-evidence { font-size: 10px; padding: 1px 7px; border-radius: 8px; font-weight: 700; }
+  .badge-evidence.yes { background: color-mix(in srgb, var(--good) 22%, var(--surface2)); color: var(--good); }
+  .badge-evidence.no { background: var(--surface2); color: var(--ink-dim); }
 </style>
 </head>
 <body>
@@ -107,6 +115,31 @@
     <div class="card">
       <h2>מחלקות/נכסים</h2>
       <div id="dept-list"><div class="empty">אין נתונים</div></div>
+    </div>
+
+    <div class="card">
+      <h2>החלטות אחרונות <span class="count" id="decisions-count">0</span></h2>
+      <div id="decisions-list"><div class="empty">אין החלטות עדיין</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Success Laws — מסלול הצלחה אמיתי</h2>
+      <div id="laws-list"><div class="empty">אין חוקים עדיין</div></div>
+    </div>
+
+    <div class="card">
+      <h2>תור פרסום <span class="count" id="queue-count">0</span></h2>
+      <div id="queue-list"><div class="empty">התור ריק</div></div>
+    </div>
+
+    <div class="card">
+      <h2>קמפיינים בצנרת <span class="count" id="campaigns-count">0</span></h2>
+      <div id="campaigns-list"><div class="empty">אין קמפיינים בצנרת</div></div>
+    </div>
+
+    <div class="card">
+      <h2>הזדמנויות מדורגות <span class="count" id="opportunities-count">0</span></h2>
+      <div id="opportunities-list"><div class="empty">אין הזדמנויות עדיין</div></div>
     </div>
 
     <div class="card" style="grid-column: span 2;">
@@ -160,16 +193,50 @@ function render(state) {
   $('goals-list').innerHTML = goals.length ? goals.map(g => `
     <div class="goal-row">${esc(g.description)}<div class="meta">עדיפות ${esc(g.priority)} · ${esc(g.horizon)}</div></div>`).join('') : '<div class="empty">אין מטרות פעילות</div>';
 
-  // departments
+  // departments -- real one-line summaries (summarize_department_report), never raw JSON
   const depts = state.departments || {};
   const deptKeys = Object.keys(depts);
   $('dept-list').innerHTML = deptKeys.length ? deptKeys.map(k => `
-    <div class="dept-row">${esc(k)}: ${esc(JSON.stringify(depts[k]).slice(0, 80))}</div>`).join('') : '<div class="empty">אין נתונים</div>';
+    <div class="dept-row">${esc(k)}: ${esc(depts[k].summary)}</div>`).join('') : '<div class="empty">אין נתונים</div>';
 
   // activity
   const activity = state.activity || [];
   $('activity-list').innerHTML = activity.length ? activity.slice().reverse().map(e => `
     <div class="act-row">${esc(e.description || e.goal_id || e.task_id || e.kind || '')}<div class="meta">${esc(e.reason || e.status || e.event || '')} · ${esc(e.at || '')}</div></div>`).join('') : '<div class="empty">אין פעילות עדיין</div>';
+
+  // decisions
+  const decisions = state.decisions || [];
+  $('decisions-count').textContent = decisions.length;
+  $('decisions-list').innerHTML = decisions.length ? decisions.map(d => `
+    <div class="decision-row">${esc(d.category)}<span class="verdict-pill">${esc(d.verdict)}</span>
+      <div class="meta">ביטחון: ${d.confidence != null ? esc(d.confidence.toFixed(3)) : 'לא ניתן לניקוד'} · ${esc(d.created_at || '').slice(0,16)}</div></div>`).join('') : '<div class="empty">אין החלטות עדיין</div>';
+
+  // success laws
+  const laws = state.success_laws || [];
+  $('laws-list').innerHTML = laws.length ? laws.map(l => `
+    <div class="law-row">
+      <span class="badge-evidence ${l.evidence_backed ? 'yes' : 'no'}">${l.evidence_backed ? 'מבוסס-ראיות' : 'השערה'}</span>
+      ${esc(l.principle)}
+      <div class="meta">מסלול הצלחה אמיתי: ${l.track_record != null ? esc(l.track_record.toFixed(2)) : 'אין קמפיינים נמדדים עדיין'}</div>
+    </div>`).join('') : '<div class="empty">אין חוקים עדיין</div>';
+
+  // publishing queue
+  const queue = state.queue || [];
+  $('queue-count').textContent = queue.length;
+  $('queue-list').innerHTML = queue.length ? queue.map(q => `
+    <div class="queue-row">${esc(q.title || q.id)} — ${esc(q.status)} (${esc(q.platform || '')})</div>`).join('') : '<div class="empty">התור ריק</div>';
+
+  // campaigns pipeline
+  const campaigns = state.campaigns || [];
+  $('campaigns-count').textContent = campaigns.length;
+  $('campaigns-list').innerHTML = campaigns.length ? campaigns.map(c => `
+    <div class="campaign-row">${esc(c.product_name || c.id)} — ${esc(c.stage)}</div>`).join('') : '<div class="empty">אין קמפיינים בצנרת</div>';
+
+  // ranked opportunities
+  const opportunities = state.opportunities || [];
+  $('opportunities-count').textContent = opportunities.length;
+  $('opportunities-list').innerHTML = opportunities.length ? opportunities.slice(0, 8).map(o => `
+    <div class="opp-row">${esc(o.product_name || o.id)}<div class="meta">שלב: ${esc(o.stage || '')} · ניקוד: ${o.score != null ? esc(o.score.toFixed(4)) : '—'}</div></div>`).join('') : '<div class="empty">אין הזדמנויות עדיין</div>';
 }
 
 async function act(taskId, verb) {

@@ -27,6 +27,7 @@ from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 from sse_starlette.sse import EventSourceResponse
 
+from atlas.brain.asset_value import rank_success_laws_by_track_record, success_law_lifetime_value
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.console import (
     build_briefing,
@@ -37,6 +38,7 @@ from atlas.brain.console import (
     get_queue,
     get_system_health,
     recent_activity,
+    summarize_department_report,
 )
 from atlas.brain.recall import recall
 
@@ -45,16 +47,48 @@ POLL_INTERVAL_SECONDS = 5
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "index.html"
 
 
+def _real_decisions(brain: CEOBrain, limit: int = 8) -> list[dict]:
+    """Most-recent real Decisions, newest first — DecisionLog is already
+    append-only and real; this only reads and sorts it, never a second
+    decision-recording mechanism."""
+    decisions = sorted(brain.decisions.decisions(), key=lambda d: d.created_at, reverse=True)[:limit]
+    return [
+        {"id": d.id, "category": d.category, "verdict": d.verdict, "confidence": d.confidence, "created_at": d.created_at}
+        for d in decisions
+    ]
+
+
+def _real_success_laws(brain: CEOBrain, limit: int = 8) -> list[dict]:
+    """Real Success Laws ranked by real, measured track record — the
+    exact function 'atlas brain law list' already uses, not a new
+    ranking mechanism built for this page."""
+    laws = brain.knowledge.success_laws()
+    ranked = rank_success_laws_by_track_record(laws, brain.campaigns, brain.memory, brain.kpis)[:limit]
+    return [
+        {
+            "id": law.id,
+            "principle": law.principle,
+            "evidence_backed": bool(law.evidence_finding_ids),
+            "track_record": success_law_lifetime_value(law.id, brain.campaigns, brain.memory, brain.kpis),
+        }
+        for law in ranked
+    ]
+
+
 def _real_state(brain: CEOBrain) -> dict:
     """One real, honest snapshot of everything ATLAS currently tracks —
     the exact same functions every CLI command already reads, never a
     second, parallel view of the same state."""
     view = build_console_view(brain)
+    departments = {
+        asset_id: {"raw": report, "summary": summarize_department_report(report)}
+        for asset_id, report in view["departments"].items()
+    }
     return {
         "goals": view["goals"],
         "pending_approvals": view["pending_approvals"],
         "blocked": view["blocked"],
-        "departments": view["departments"],
+        "departments": departments,
         "kpis": view["kpis"],
         "cash_flow": view["cash_flow"],
         "warnings": find_warnings(brain),
@@ -63,6 +97,8 @@ def _real_state(brain: CEOBrain) -> dict:
         "queue": get_queue(brain),
         "campaigns": get_campaigns(brain),
         "opportunities": get_opportunities(brain),
+        "decisions": _real_decisions(brain),
+        "success_laws": _real_success_laws(brain),
         "briefing": build_briefing(brain),
     }
 
