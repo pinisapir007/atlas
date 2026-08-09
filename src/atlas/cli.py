@@ -61,6 +61,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("list", help="list known assets")
     subparsers.add_parser("console", help="consolidated operator view: goals, approvals, departments, KPIs")
 
+    hq_parser = subparsers.add_parser("headquarters", help="launch the real ATLAS Headquarters web operator interface")
+    hq_parser.add_argument("--port", type=int, default=8420)
+    hq_parser.add_argument("--no-browser", action="store_true", help="don't automatically open a browser tab")
+
     info_parser = subparsers.add_parser("info", help="show asset metadata")
     info_parser.add_argument("asset")
 
@@ -656,6 +660,8 @@ def main(argv: list[str] | None = None) -> int:
             _cmd_list()
         elif args.command == "console":
             _cmd_console()
+        elif args.command == "headquarters":
+            _cmd_headquarters(args)
         elif args.command == "info":
             _cmd_info(args.asset)
         elif args.command == "brain":
@@ -702,6 +708,20 @@ def _cmd_list() -> None:
 def _cmd_console() -> None:
     brain = CEOBrain()
     print(format_console_view(build_console_view(brain)))
+
+
+def _cmd_headquarters(args: argparse.Namespace) -> None:
+    import webbrowser
+
+    import uvicorn
+
+    from atlas.headquarters.server import create_app
+
+    url = f"http://127.0.0.1:{args.port}/"
+    print(f"ATLAS Headquarters — {url}")
+    if not args.no_browser:
+        webbrowser.open(url)
+    uvicorn.run(create_app(), host="127.0.0.1", port=args.port, log_level="warning")
 
 
 def _cmd_info(asset_id: str) -> None:
