@@ -120,6 +120,19 @@ def _real_success_laws(brain: CEOBrain, limit: int = 8) -> list[dict]:
     ]
 
 
+def _real_active_asset_ids(brain: CEOBrain) -> list[str]:
+    """Which real departments/assets have real work in flight right now
+    -- Task.assigned_asset_id for every task whose real status is
+    "delegated" or "in_progress" (the same IN_FLIGHT_STATUSES Monitor
+    already uses to decide what to sync). This is the real, honest
+    signal behind "a department lights up when it's active" -- never a
+    decorative always-on animation, only ever true while a real Task is
+    genuinely outstanding against that asset."""
+    return sorted(
+        {t.assigned_asset_id for t in brain.memory.tasks() if t.status in {"delegated", "in_progress"} and t.assigned_asset_id}
+    )
+
+
 def _real_last_active(activity: list[dict], decisions: list[dict]) -> str | None:
     """The real timestamp of ATLAS's own most recent recorded action —
     not the moment this page happened to render. Sourced only from
@@ -147,6 +160,7 @@ def _real_state(brain: CEOBrain) -> dict:
         "pending_approvals": view["pending_approvals"],
         "blocked": view["blocked"],
         "departments": departments,
+        "active_asset_ids": _real_active_asset_ids(brain),
         "kpis": view["kpis"],
         "cash_flow": view["cash_flow"],
         "warnings": find_warnings(brain),

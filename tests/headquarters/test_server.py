@@ -92,6 +92,24 @@ def test_api_state_reflects_a_real_goal(tmp_path):
     assert data["atlas_last_active"] is None
 
 
+def test_api_state_active_asset_ids_reflects_real_in_flight_tasks(tmp_path):
+    brain = _isolated_brain(tmp_path)
+    goal = Goal(description="g", status="active")
+    brain.memory.save_goal(goal)
+    in_flight = Task(goal_id=goal.id, description="dispatched work", assigned_asset_id="research")
+    in_flight.status = "delegated"
+    brain.memory.save_task(in_flight)
+    done = Task(goal_id=goal.id, description="finished work", assigned_asset_id="maya")
+    done.status = "done"
+    brain.memory.save_task(done)
+    client = TestClient(create_app(brain))
+
+    response = client.get("/api/state")
+    data = response.json()
+
+    assert data["active_asset_ids"] == ["research"]
+
+
 def test_api_state_departments_are_pre_summarized_never_raw_json_only(tmp_path):
     brain = _isolated_brain(tmp_path)
     client = TestClient(create_app(brain))
