@@ -17,6 +17,32 @@ def test_complete_returns_the_real_plain_text_response():
     assert call_kwargs["api_key"] == "fake-key"
 
 
+def test_complete_omits_max_output_tokens_by_default_preserving_chatgoogles_own_default():
+    # Real bug, found live (2026-08-09): a real, large delegated task
+    # (a complete self-contained HTML design mockup) silently truncated
+    # mid-file because ChatGoogle's own max_output_tokens=8096 default
+    # was never overridden. Every existing caller must keep getting
+    # ChatGoogle's own default unchanged -- this provider must never
+    # pass an explicit max_output_tokens unless the caller asked for one.
+    fake_response = type("R", (), {"completion": "PONG"})()
+    with patch("browser_use.llm.google.chat.ChatGoogle") as MockChatGoogle:
+        MockChatGoogle.return_value.ainvoke = AsyncMock(return_value=fake_response)
+        GeminiProvider(api_key="fake-key").complete("ping")
+
+    _, call_kwargs = MockChatGoogle.call_args
+    assert "max_output_tokens" not in call_kwargs
+
+
+def test_complete_passes_a_real_explicit_max_output_tokens_override():
+    fake_response = type("R", (), {"completion": "a very long real response"})()
+    with patch("browser_use.llm.google.chat.ChatGoogle") as MockChatGoogle:
+        MockChatGoogle.return_value.ainvoke = AsyncMock(return_value=fake_response)
+        GeminiProvider(api_key="fake-key", max_output_tokens=32000).complete("write a long real document")
+
+    _, call_kwargs = MockChatGoogle.call_args
+    assert call_kwargs["max_output_tokens"] == 32000
+
+
 def test_complete_without_an_api_key_raises_clearly(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     provider = GeminiProvider(api_key=None)

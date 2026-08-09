@@ -46,9 +46,24 @@ class GeminiProvider:
 
     name = "gemini"
 
-    def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL):
+    def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL, max_output_tokens: int | None = None):
         self._api_key = api_key if api_key is not None else os.environ.get("GEMINI_API_KEY")
         self._model = model
+        # Real bug, found live (2026-08-09): ChatGoogle defaults to
+        # max_output_tokens=8096 and this provider never overrode it --
+        # a real, large deliverable (e.g. a complete self-contained HTML
+        # mockup, delegated to Gemini as a real design task) silently
+        # cut off mid-file with no error, because 8096 tokens was simply
+        # not enough. None (the default here) preserves ChatGoogle's own
+        # 8096 default exactly, for every existing caller -- only a
+        # caller that explicitly asks for more gets more.
+        self._max_output_tokens = max_output_tokens
+
+    def _chatgoogle_kwargs(self, api_key: str) -> dict:
+        kwargs = {"model": self._model, "api_key": api_key}
+        if self._max_output_tokens is not None:
+            kwargs["max_output_tokens"] = self._max_output_tokens
+        return kwargs
 
     def complete(self, prompt: str) -> str:
         import asyncio
@@ -96,7 +111,7 @@ class GeminiProvider:
         from browser_use.llm.google.chat import ChatGoogle
         from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, UserMessage
 
-        llm = ChatGoogle(model=self._model, api_key=api_key)
+        llm = ChatGoogle(**self._chatgoogle_kwargs(api_key))
         b64 = base64.b64encode(image_bytes).decode("ascii")
         message = UserMessage(
             content=[
@@ -133,7 +148,7 @@ class GeminiProvider:
         from browser_use.llm.google.chat import ChatGoogle
         from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, UserMessage
 
-        llm = ChatGoogle(model=self._model, api_key=api_key)
+        llm = ChatGoogle(**self._chatgoogle_kwargs(api_key))
         ExtractionModel = create_model("ExtractionModel", **{key: (str, "") for key in fields})
         field_list = "; ".join(f'"{key}": {description}' for key, description in fields.items())
         full_prompt = (
@@ -368,7 +383,7 @@ class GeminiProvider:
         from browser_use.llm.google.chat import ChatGoogle
         from browser_use.llm.messages import UserMessage
 
-        llm = ChatGoogle(model=self._model, api_key=api_key)
+        llm = ChatGoogle(**self._chatgoogle_kwargs(api_key))
         response = await llm.ainvoke([UserMessage(content=prompt)])
         return response.completion
 
@@ -378,7 +393,7 @@ class GeminiProvider:
         from browser_use.llm.google.chat import ChatGoogle
         from browser_use.llm.messages import UserMessage
 
-        llm = ChatGoogle(model=self._model, api_key=api_key)
+        llm = ChatGoogle(**self._chatgoogle_kwargs(api_key))
         ExtractionModel = create_model("ExtractionModel", **{key: (str, "") for key in fields})
         field_list = "; ".join(f'"{key}": {description}' for key, description in fields.items())
         full_prompt = (
