@@ -16,6 +16,7 @@
   body { background:var(--bg); color:var(--ink); font-family:"Segoe UI","Arial Hebrew","Noto Sans Hebrew",system-ui,sans-serif; direction: rtl; text-align: right; }
   .tabular { font-variant-numeric: tabular-nums; }
   header { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; margin-bottom: 2px; }
   header h1 { font-size: 18px; margin: 0; letter-spacing: .01em; }
   .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); display: inline-block; margin-left: 6px; animation: pulse 2.4s infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
@@ -25,7 +26,9 @@
   #recall-input:focus { outline: 1px solid var(--accent); }
 
   .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 24px 80px; }
-  .briefing { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; margin-bottom: 20px; font-size: 14px; color: var(--ink-dim); white-space: pre-wrap; line-height: 1.6; }
+  .briefing-hero { border: 1px solid var(--accent); border-radius: 16px; padding: 22px 26px; margin-bottom: 24px; background: color-mix(in srgb, var(--accent) 7%, var(--surface)); box-shadow: 0 2px 10px var(--shadow); }
+  .briefing-label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); font-weight: 800; margin-bottom: 10px; }
+  .briefing { font-size: 15.5px; color: var(--ink); white-space: pre-wrap; line-height: 1.7; }
 
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; box-shadow: 0 1px 2px var(--shadow); }
@@ -77,6 +80,7 @@
   .btn-action { background: var(--surface2); border: 1px solid var(--line); color: var(--ink); border-radius: 20px; padding: 7px 16px; font-size: 12.5px; font-weight: 700; }
   .btn-action:hover { border-color: var(--accent); color: var(--accent); }
   select#period-select { background: var(--surface2); border: 1px solid var(--line); border-radius: 20px; padding: 6px 10px; font-size: 12.5px; color: var(--ink); }
+  .section-sub { font-size: 11.5px; color: var(--ink-dim); margin: -6px 0 10px; }
 
   #report-modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: flex-start; justify-content: center; z-index: 50; padding: 40px 20px; overflow-y: auto; }
   #report-modal.open { display: flex; }
@@ -89,11 +93,12 @@
 </style>
 </head>
 <body>
-<div id="conn-warning">⚠ החיבור החי אבד — הנתונים עשויים להיות לא מעודכנים. מנסה להתחבר מחדש...</div>
+<div id="conn-warning">⚠ תצוגת השידור החי נותקה — ATLAS ממשיך לפעול ברקע גם עכשיו. מנסה להתחבר מחדש...</div>
 <header>
   <div>
-    <h1>ATLAS Headquarters<span class="live-dot" id="live-dot" title="עדכון חי כל 5 שניות"></span></h1>
-    <div class="live-label">Maya Health — יחידה עסקית 1 · עדכון אחרון: <span id="last-update">—</span></div>
+    <div class="eyebrow">ATLAS · מנכ"ל דיגיטלי · פועל באופן עצמאי, 24/7</div>
+    <h1>המשרד של ATLAS<span class="live-dot" id="live-dot" title="מחובר לפעילות החיה של ATLAS"></span></h1>
+    <div class="live-label">Maya Health — יחידה עסקית 1 · ATLAS פעל לאחרונה: <span id="last-active">—</span></div>
   </div>
   <div class="header-actions">
     <select id="period-select">
@@ -102,7 +107,7 @@
       <option value="monthly">חודשי</option>
     </select>
     <button class="btn-action" onclick="generateReport()">דוח מנהלים</button>
-    <button class="btn-action" onclick="runTick()" id="tick-btn">הרץ מחזור עכשיו</button>
+    <button class="btn-action" onclick="runTick()" id="tick-btn" title="ATLAS כבר פועל באופן עצמאי כל 30 דקות — זה רק מקדים את המחזור הבא">משוך עדכון מיידי</button>
   </div>
   <div id="recall-box">
     <input id="recall-input" type="text" placeholder="חפש בזיכרון... (recall)">
@@ -114,17 +119,21 @@
 <div id="report-modal">
   <div id="report-panel">
     <button id="report-close" onclick="closeReport()">✕</button>
-    <div id="report-body">טוען דוח...</div>
+    <div id="report-body">מביא את הדוח האמיתי...</div>
   </div>
 </div>
 
 <div class="wrap">
-  <div class="briefing" id="briefing">טוען...</div>
+  <div class="briefing-hero">
+    <div class="briefing-label">מאז שעזבת — מה ATLAS עשה</div>
+    <div class="briefing" id="briefing">מתחבר לעבודה המתמשכת של ATLAS…</div>
+  </div>
 
   <div class="grid">
     <div class="card" style="grid-column: 1 / -1;">
-      <h2>אישורים ממתינים <span class="count" id="approvals-count">0</span></h2>
-      <div id="approvals-list"><div class="empty">טוען...</div></div>
+      <h2>ATLAS ממתין להחלטה שלך <span class="count" id="approvals-count">0</span></h2>
+      <div class="section-sub">כל פריט כאן כבר נותח ונומק על ידי ATLAS — נדרש רק אישורך כדי להמשיך</div>
+      <div id="approvals-list"><div class="empty">מתחבר לעבודה המתמשכת של ATLAS…</div></div>
     </div>
 
     <div class="card">
@@ -189,11 +198,20 @@ const $ = (id) => document.getElementById(id);
 
 function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
 
+function fmtWhen(iso) {
+  if (!iso) return 'טרם נרשמה פעילות';
+  try { return new Date(iso).toLocaleString('he-IL'); } catch (e) { return iso; }
+}
+
 function render(state) {
-  $('last-update').textContent = new Date().toLocaleTimeString('he-IL');
+  // ATLAS's own real last-recorded-action timestamp -- never the
+  // browser's clock, so this reflects when ATLAS last actually did
+  // something, not when this tab last happened to refresh.
+  $('last-active').textContent = fmtWhen(state.atlas_last_active);
   $('briefing').textContent = state.briefing || '';
 
-  // approvals
+  // approvals -- ATLAS has already reasoned through each of these;
+  // the founder is authorizing a conclusion, not starting from zero.
   const approvals = state.pending_approvals || [];
   $('approvals-count').textContent = approvals.length;
   document.title = approvals.length ? `(${approvals.length}) ATLAS Headquarters` : 'ATLAS Headquarters';
@@ -204,7 +222,7 @@ function render(state) {
         <button class="btn-approve" onclick="act('${esc(a.id)}','approve')">אשר</button>
         <button class="btn-reject" onclick="act('${esc(a.id)}','reject')">דחה</button>
       </div>
-    </div>`).join('') : '<div class="empty">אין אישורים ממתינים</div>';
+    </div>`).join('') : '<div class="empty">שום דבר לא ממתין לך כרגע — ATLAS ממשיך לפעול</div>';
 
   // warnings
   const warnings = state.warnings || [];
@@ -309,20 +327,20 @@ document.addEventListener('click', (e) => {
 async function runTick() {
   const btn = $('tick-btn');
   btn.disabled = true;
-  btn.textContent = 'רץ...';
+  btn.textContent = 'ATLAS פועל...';
   try {
     const res = await fetch('/api/tick', { method: 'POST' });
     render(await res.json());
   } finally {
     btn.disabled = false;
-    btn.textContent = 'הרץ מחזור עכשיו';
+    btn.textContent = 'משוך עדכון מיידי';
   }
 }
 
 async function generateReport() {
   const period = $('period-select').value;
   $('report-modal').classList.add('open');
-  $('report-body').innerHTML = 'טוען דוח אמיתי...';
+  $('report-body').innerHTML = 'מביא את הדוח האמיתי...';
   const res = await fetch(`/api/review/${period}`, { method: 'POST' });
   const report = await res.json();
   const section = (title, rows) => rows && rows.length ? `<h3>${esc(title)}</h3>` + rows.map(r => `<div class="report-line">${r}</div>`).join('') : '';

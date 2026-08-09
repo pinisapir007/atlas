@@ -75,6 +75,17 @@ def _real_success_laws(brain: CEOBrain, limit: int = 8) -> list[dict]:
     ]
 
 
+def _real_last_active(activity: list[dict], decisions: list[dict]) -> str | None:
+    """The real timestamp of ATLAS's own most recent recorded action —
+    not the moment this page happened to render. Sourced only from
+    timestamps ATLAS itself already wrote (the outcome/decision log),
+    never the browser's clock, so the founder sees when ATLAS last
+    actually did something, not when they last looked."""
+    timestamps = [e.get("at") for e in activity if e.get("at")]
+    timestamps += [d.get("created_at") for d in decisions if d.get("created_at")]
+    return max(timestamps) if timestamps else None
+
+
 def _real_state(brain: CEOBrain) -> dict:
     """One real, honest snapshot of everything ATLAS currently tracks —
     the exact same functions every CLI command already reads, never a
@@ -84,6 +95,8 @@ def _real_state(brain: CEOBrain) -> dict:
         asset_id: {"raw": report, "summary": summarize_department_report(report)}
         for asset_id, report in view["departments"].items()
     }
+    activity = recent_activity(brain, limit=12)
+    decisions = _real_decisions(brain)
     return {
         "goals": view["goals"],
         "pending_approvals": view["pending_approvals"],
@@ -92,14 +105,15 @@ def _real_state(brain: CEOBrain) -> dict:
         "kpis": view["kpis"],
         "cash_flow": view["cash_flow"],
         "warnings": find_warnings(brain),
-        "activity": recent_activity(brain, limit=12),
+        "activity": activity,
         "system_health": get_system_health(brain),
         "queue": get_queue(brain),
         "campaigns": get_campaigns(brain),
         "opportunities": get_opportunities(brain),
-        "decisions": _real_decisions(brain),
+        "decisions": decisions,
         "success_laws": _real_success_laws(brain),
         "briefing": build_briefing(brain),
+        "atlas_last_active": _real_last_active(activity, decisions),
     }
 
 

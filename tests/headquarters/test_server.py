@@ -89,6 +89,7 @@ def test_api_state_reflects_a_real_goal(tmp_path):
     assert "briefing" in data
     assert data["decisions"] == []
     assert data["success_laws"] == []
+    assert data["atlas_last_active"] is None
 
 
 def test_api_state_departments_are_pre_summarized_never_raw_json_only(tmp_path):
@@ -115,6 +116,10 @@ def test_api_state_reflects_a_real_decision(tmp_path):
     assert len(data["decisions"]) == 1
     assert data["decisions"][0]["category"] == "affiliate"
     assert data["decisions"][0]["verdict"] == "invest"
+    # ATLAS's own recorded action timestamp, not the moment this request
+    # happened to be made -- the real signal the founder relies on to see
+    # ATLAS was working while they were away.
+    assert data["atlas_last_active"] == data["decisions"][0]["created_at"]
 
 
 def test_api_state_reflects_a_real_success_law_track_record(tmp_path):
