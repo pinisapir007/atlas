@@ -131,6 +131,25 @@ def create_app(brain: CEOBrain | None = None) -> Starlette:
             return JSONResponse({"error": str(exc)}, status_code=404)
         return JSONResponse({"id": task.id, "status": task.status})
 
+    async def api_tick(request):
+        """Runs the real operational cycle right now -- the exact same
+        CEOBrain.tick() the real Windows Scheduled Task calls every 30
+        minutes. A real CEO shouldn't have to wait for the clock."""
+        brain.tick()
+        return JSONResponse(_real_state(brain))
+
+    async def api_review(request):
+        """Runs the real strategic review cycle for a real period --
+        CEOBrain.review(), unchanged. This has real side effects
+        (reallocates goals, may create redesign tasks), so it is a
+        deliberate POST action, never run silently in the background."""
+        period = request.path_params["period"]
+        try:
+            report = brain.review(period)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        return JSONResponse(report)
+
     async def api_recall(request):
         query = request.query_params.get("q", "")
         if not query:
@@ -166,6 +185,8 @@ def create_app(brain: CEOBrain | None = None) -> Starlette:
             Route("/api/state", api_state),
             Route("/api/approve/{task_id}", api_approve, methods=["POST"]),
             Route("/api/reject/{task_id}", api_reject, methods=["POST"]),
+            Route("/api/tick", api_tick, methods=["POST"]),
+            Route("/api/review/{period}", api_review, methods=["POST"]),
             Route("/api/recall", api_recall),
             Route("/api/events", api_events),
         ]

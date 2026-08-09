@@ -68,13 +68,41 @@
   .badge-evidence { font-size: 10px; padding: 1px 7px; border-radius: 8px; font-weight: 700; }
   .badge-evidence.yes { background: color-mix(in srgb, var(--good) 22%, var(--surface2)); color: var(--good); }
   .badge-evidence.no { background: var(--surface2); color: var(--ink-dim); }
+
+  .live-dot.offline { background: var(--bad); animation: none; }
+  #conn-warning { display: none; background: color-mix(in srgb, var(--bad) 14%, var(--surface)); border-bottom: 1px solid var(--bad); color: var(--bad); font-size: 12.5px; text-align: center; padding: 6px; }
+  #conn-warning.show { display: block; }
+
+  .header-actions { display: flex; gap: 10px; align-items: center; }
+  .btn-action { background: var(--surface2); border: 1px solid var(--line); color: var(--ink); border-radius: 20px; padding: 7px 16px; font-size: 12.5px; font-weight: 700; }
+  .btn-action:hover { border-color: var(--accent); color: var(--accent); }
+  select#period-select { background: var(--surface2); border: 1px solid var(--line); border-radius: 20px; padding: 6px 10px; font-size: 12.5px; color: var(--ink); }
+
+  #report-modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: flex-start; justify-content: center; z-index: 50; padding: 40px 20px; overflow-y: auto; }
+  #report-modal.open { display: flex; }
+  #report-panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 26px 28px; max-width: 780px; width: 100%; max-height: 90vh; overflow-y: auto; }
+  #report-panel h3 { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; color: var(--accent); }
+  #report-panel h3:first-child { margin-top: 0; }
+  #report-close { float: left; background: none; border: none; color: var(--ink-dim); font-size: 20px; cursor: pointer; }
+  .report-line { font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .report-line:last-child { border-bottom: none; }
 </style>
 </head>
 <body>
+<div id="conn-warning">⚠ החיבור החי אבד — הנתונים עשויים להיות לא מעודכנים. מנסה להתחבר מחדש...</div>
 <header>
   <div>
-    <h1>ATLAS Headquarters<span class="live-dot" title="עדכון חי כל 5 שניות"></span></h1>
+    <h1>ATLAS Headquarters<span class="live-dot" id="live-dot" title="עדכון חי כל 5 שניות"></span></h1>
     <div class="live-label">Maya Health — יחידה עסקית 1 · עדכון אחרון: <span id="last-update">—</span></div>
+  </div>
+  <div class="header-actions">
+    <select id="period-select">
+      <option value="daily">יומי</option>
+      <option value="weekly">שבועי</option>
+      <option value="monthly">חודשי</option>
+    </select>
+    <button class="btn-action" onclick="generateReport()">דוח מנהלים</button>
+    <button class="btn-action" onclick="runTick()" id="tick-btn">הרץ מחזור עכשיו</button>
   </div>
   <div id="recall-box">
     <input id="recall-input" type="text" placeholder="חפש בזיכרון... (recall)">
@@ -82,6 +110,13 @@
 </header>
 
 <div id="recall-results"></div>
+
+<div id="report-modal">
+  <div id="report-panel">
+    <button id="report-close" onclick="closeReport()">✕</button>
+    <div id="report-body">טוען דוח...</div>
+  </div>
+</div>
 
 <div class="wrap">
   <div class="briefing" id="briefing">טוען...</div>
@@ -161,6 +196,7 @@ function render(state) {
   // approvals
   const approvals = state.pending_approvals || [];
   $('approvals-count').textContent = approvals.length;
+  document.title = approvals.length ? `(${approvals.length}) ATLAS Headquarters` : 'ATLAS Headquarters';
   $('approvals-list').innerHTML = approvals.length ? approvals.map(a => `
     <div class="approval-row" data-id="${esc(a.id)}">
       <div class="desc"><span class="cat">[${esc(a.category)}]</span>${esc(a.description)}</div>
@@ -270,10 +306,50 @@ document.addEventListener('click', (e) => {
   }
 });
 
+async function runTick() {
+  const btn = $('tick-btn');
+  btn.disabled = true;
+  btn.textContent = 'רץ...';
+  try {
+    const res = await fetch('/api/tick', { method: 'POST' });
+    render(await res.json());
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'הרץ מחזור עכשיו';
+  }
+}
+
+async function generateReport() {
+  const period = $('period-select').value;
+  $('report-modal').classList.add('open');
+  $('report-body').innerHTML = 'טוען דוח אמיתי...';
+  const res = await fetch(`/api/review/${period}`, { method: 'POST' });
+  const report = await res.json();
+  const section = (title, rows) => rows && rows.length ? `<h3>${esc(title)}</h3>` + rows.map(r => `<div class="report-line">${r}</div>`).join('') : '';
+  $('report-body').innerHTML = `
+    <h3>מטרות פעילות</h3>
+    ${(report.active_goals || []).map(g => `<div class="report-line">${esc(g)}</div>`).join('') || '<div class="empty">אין</div>'}
+    ${section('אישורים ממתינים', (report.pending_approvals || []).map(a => esc(`[${a.category}] ${a.description}`)))}
+    ${section('הזדמנויות חסומות', (report.blocked_opportunities || []).map(b => esc(`${b.description} — ${b.reason}`)))}
+    ${section('שינויי הקצאה', (report.reallocations || []).map(r => esc(`${r.description}: עדיפות ${r.old_priority}→${r.new_priority} (${r.reason})`)))}
+    <h3>תזרים מזומנים</h3>
+    ${(report.cash_flow || []).map(c => `<div class="report-line">${esc(c.description)}: רווח ${esc(c.profit)}</div>`).join('') || '<div class="empty">אין נתונים</div>'}
+  `;
+}
+
+function closeReport() { $('report-modal').classList.remove('open'); }
+
 refresh();
+let connLost = false;
+function setConnState(lost) {
+  if (lost === connLost) return;
+  connLost = lost;
+  $('conn-warning').classList.toggle('show', lost);
+  $('live-dot').classList.toggle('offline', lost);
+}
 const es = new EventSource('/api/events');
-es.addEventListener('state', (e) => render(JSON.parse(e.data)));
-es.onerror = () => { /* real, honest degrade: polling below covers a dropped SSE connection */ };
+es.addEventListener('state', (e) => { setConnState(false); render(JSON.parse(e.data)); });
+es.onerror = () => setConnState(true); // real, honest degrade: polling below still covers a dropped SSE connection
 setInterval(refresh, 15000);
 </script>
 </body>

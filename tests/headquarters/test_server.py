@@ -204,3 +204,38 @@ def test_default_brain_is_created_when_none_injected():
     # state, only constructs the object.
     app = create_app()
     assert app is not None
+
+
+def test_api_tick_runs_a_real_cycle_and_returns_fresh_state(tmp_path):
+    brain = _isolated_brain(tmp_path)
+    brain.memory.save_goal(Goal(description="a real active goal", status="active"))
+    client = TestClient(create_app(brain))
+
+    response = client.post("/api/tick")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert "goals" in data and "briefing" in data
+
+
+def test_api_review_returns_a_real_report_for_a_valid_period(tmp_path):
+    brain = _isolated_brain(tmp_path)
+    brain.memory.save_goal(Goal(description="a real active goal", status="active"))
+    client = TestClient(create_app(brain))
+
+    response = client.post("/api/review/daily")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["period"] == "daily"
+    assert "a real active goal" in data["active_goals"]
+
+
+def test_api_review_rejects_an_invalid_period(tmp_path):
+    brain = _isolated_brain(tmp_path)
+    client = TestClient(create_app(brain))
+
+    response = client.post("/api/review/not-a-real-period")
+
+    assert response.status_code == 400
+    assert "error" in response.json()
