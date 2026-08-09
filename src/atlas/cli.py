@@ -19,6 +19,8 @@ from atlas.brain.asset_value import success_law_lifetime_value
 from atlas.brain.opportunity_ranking import explain_opportunity_subject, rank_opportunities
 from atlas.brain.portfolio import portfolio_entries, rank_portfolio
 from atlas.brain.recall import recall
+from atlas.brain.screen_observation import observe_and_record_screen
+from atlas.brain.screen_reader import ScreenReaderError
 from atlas.brain.console import build_console_view, format_console_view
 from atlas.brain.kpi_intake import record_manual_cost, record_manual_refund, record_manual_revenue, record_manual_settlement
 from atlas.brain.models import Finding, StrategicObjective, SuccessLaw, Task
@@ -160,6 +162,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--market", default="", help="the country/language this finding applies to, e.g. 'US' — leave unset if not market-specific"
     )
     finding_sub.add_parser("list", help="list every recorded finding")
+
+    observe_screen_parser = brain_sub.add_parser(
+        "observe-screen",
+        help="capture and understand the real, current screen right now, and record it as a real Finding -- for narrating a live browsing session (e.g. a founder browsing an affiliate marketplace) one page at a time",
+    )
+    observe_screen_parser.add_argument("category", help="open string: affiliate, health, digital_product, ...")
+    observe_screen_parser.add_argument("--subject", default="", help="the specific product/topic on screen right now, e.g. a product name")
+    observe_screen_parser.add_argument("--market", default="", help="the country/language this observation applies to")
+    observe_screen_parser.add_argument("--prompt", default=None, help="override the default describe+transcribe instruction with a targeted question")
 
     law_parser = brain_sub.add_parser("law", help="Success Laws: generalized business intelligence extracted from real evidence -- never a blueprint to copy")
     law_sub = law_parser.add_subparsers(dest="law_command", required=True)
@@ -930,6 +941,20 @@ def _cmd_brain(args: argparse.Namespace) -> None:
                     f"{finding.subject or '(no subject)'}\t{finding.market or '(no market)'}\t"
                     f"{finding.source}\t{finding.description}\t{finding.evidence}"
                 )
+
+    elif cmd == "observe-screen":
+        try:
+            finding = observe_and_record_screen(
+                category=args.category,
+                subject=args.subject,
+                market=args.market,
+                prompt=args.prompt,
+                knowledge=brain.knowledge,
+            )
+        except ScreenReaderError as exc:
+            print(f"error: {exc}")
+            return
+        print(f"{finding.id}\t{finding.category}\t{finding.subject or '(no subject)'}\t{finding.description}")
 
     elif cmd == "law":
         if args.law_command == "add":
