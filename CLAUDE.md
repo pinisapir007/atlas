@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**`ATLAS_CONSTITUTION.md` (repo root) is the supreme document of the system.** Every decision, every Agent, every department, and every company built under ATLAS must be compatible with it. This file and every `docs/*.md` file own *detail*; the Constitution owns *identity and law*, consolidating (not duplicating) what they establish — read it first when in doubt about whether something is allowed, not this file.
+
 ## What this project is
 
 ATLAS is the CEO of the company: it plans, prioritizes, delegates work to MAYA and future digital assets, monitors execution and KPIs, allocates resources, produces executive reports, and continuously improves the business itself — autonomously by default, with a human approving only irreversible or high-risk actions (large financial commitments, legal agreements, privileged-access changes, destructive operations, and any redesign of the business's own workflows/agents/processes).
