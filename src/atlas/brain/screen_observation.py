@@ -47,6 +47,11 @@ def observe_and_record_screen(
         evidence="local screen capture",
         subject=subject,
         market=market,
+        # evidence_role (2026-08-17, ONE BRAIN Evidence Role Gate):
+        # "primary_observation" -- ATLAS directly observing the real,
+        # current screen; there is no external claimant asserting
+        # anything here at all, by construction.
+        evidence_role="primary_observation",
     )
     knowledge.save_finding(finding)
     return finding

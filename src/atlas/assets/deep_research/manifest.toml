@@ -1,0 +1,10 @@
+id = "deep_research"
+name = "Deep Research"
+kind = "operational_agent"
+description = "The real, bounded, multi-step escalation for a category shallow Research Discovery already gave up on -- runs up to MAX_STEPS differently-worded real search+navigate cycles (reusing ResearchDiscoveryAgent's own proven mechanism per step), stopping early on real ENOUGH_EVIDENCE (decision_engine.MIN_INDEPENDENT_SOURCES) or NO_PROGRESS (a step found nothing new), never fabricating a result and never looping unboundedly."
+owner = "atlas"
+tags = ["discovery", "research"]
+entrypoint = "atlas.assets.deep_research.agent:DeepResearchAgent"
+
+[config]
+categories = ["deep_research"]

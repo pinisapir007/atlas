@@ -47,6 +47,19 @@ def test_observe_and_record_screen_saves_a_real_finding():
     assert "Product X" in saved[0].description
 
 
+def test_observe_and_record_screen_evidence_role_is_primary_observation():
+    """ONE BRAIN Evidence Role Gate (2026-08-17): ATLAS directly observing
+    its own real, current screen -- no external claimant exists here at
+    all, by construction."""
+    knowledge = KnowledgeBase(store=_FakeStore())
+    reader = _FakeScreenReader()
+
+    finding = observe_and_record_screen("affiliate", screen_reader=reader, knowledge=knowledge)
+
+    assert finding.evidence_role == "primary_observation"
+    assert finding.claimant == ""
+
+
 def test_observe_and_record_screen_passes_through_a_custom_prompt():
     knowledge = KnowledgeBase(store=_FakeStore())
     reader = _FakeScreenReader()

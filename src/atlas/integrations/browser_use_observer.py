@@ -48,11 +48,52 @@ session `_observe_async` already opens, then understood via the same
 real GeminiProvider.understand_image() ImagePlugin/ScreenReader
 already established -- one shared real mechanism for every real image
 source, not a fourth reimplementation.
+
+CDP Attach (2026-08-13, M1 Marketplace Discovery Safety Wiring):
+`cdp_url` is a purely additive, optional constructor parameter --
+`None` by default, which is BrowserSession's own real default too
+(confirmed by direct inspection of the installed browser_use==0.13.7
+signature), so every existing caller that doesn't pass it gets the
+exact original behavior (a fresh, local, unauthenticated session).
+When set, BrowserSession attaches to an already-running browser
+instead of launching a new one -- e.g. a founder-controlled, dedicated
+browser profile the founder has already logged into by hand. This
+module never reads a hardcoded address or any credential for this --
+the real value is the caller's responsibility to source (env/config/
+runtime parameter), never hardcoded here.
+
+Page Readiness (2026-08-13, M1 Marketplace Discovery Minimum Page
+Readiness): `page_ready_check`/`page_ready_timeout` are purely
+additive, optional -- `None`/unused by default, every existing caller
+keeps the exact original behavior. A real, live probe against
+Digistore24's Affiliate Marketplace found the product list is
+genuinely still loading (a real `ds-spinner`/`loader-icon` was
+captured mid-render) at the moment `get_state_as_text()` is first
+called after navigation -- a fixed sleep would be a guess; this is a
+real, bounded, state-based wait instead. Deliberately built on the
+already-public, already-tested `get_state_as_text()` primitive (a
+polling loop calling it repeatedly) rather than reaching into
+browser_use's internal `_navigate_and_wait`/`wait_until='networkidle'`
+machinery -- `networkidle` is a real, available alternative (a
+network-quiescence proxy, not the same as "the specific loading
+indicator this page actually shows is gone"), left as a documented,
+not-yet-needed option rather than built speculatively. No action-
+capable automation (no scroll/click/input of any kind) is used to
+reach readiness -- purely repeated, read-only observation of the
+same already-navigated, already target-verified page.
+
+Target re-verification (2026-08-13): `verify_target` is checked
+*twice* when a readiness wait happens -- once right after navigation
+(before waiting at all, so we never even wait on an unapproved page),
+and again *after* the wait, against a freshly re-resolved real URL
+(never the pre-wait value reused) -- a client-side redirect during the
+wait must never slip through on a stale check.
 """
 
 import asyncio
 import os
 from pathlib import Path
+from typing import Callable
 
 from atlas.integrations.base import AIProvider, PageObservation
 from atlas.integrations.gemini_provider import GeminiProvider, GeminiProviderError
@@ -66,6 +107,35 @@ class BrowserUseError(Exception):
     credential) — never swallowed into a fabricated/partial
     observation, the same loud-failure discipline
     Digistore24APIError already establishes."""
+
+
+async def select_target_by_url(session, url: str) -> None:
+    """Explicit CDP target selection (2026-08-13, M1; promoted to a
+    module-level function 2026-08-14, M1 Autonomous Marketplace
+    Discovery Loop, so DiscoveryScrollAdvancer can reuse the exact same
+    fail-closed logic rather than a second copy of it). Finds the
+    *existing* real page target whose real, current URL exactly matches
+    `url` and explicitly switches focus to it via the real, public
+    get_or_create_cdp_session(focus=True) -- the same real method
+    session.start()/connect() already uses internally for its own
+    (purely positional, page_targets[0]) initial focus choice.
+    Fail-closed, never a guess: raises BrowserUseError on zero matches
+    (no fallback to whichever target was already focused) and on more
+    than one exact match (ambiguity is reported, never silently resolved
+    by picking the first one)."""
+    targets = session.session_manager.get_all_page_targets()
+    matches = [t for t in targets if t.url == url]
+
+    if not matches:
+        raise BrowserUseError(
+            f"no existing browser target found with URL {url!r} -- {len(targets)} target(s) open, none match"
+        )
+    if len(matches) > 1:
+        raise BrowserUseError(
+            f"{len(matches)} existing targets match URL {url!r} -- ambiguous, refusing to guess which one"
+        )
+
+    await session.get_or_create_cdp_session(matches[0].target_id, focus=True)
 
 
 class BrowserUseObserver:
@@ -82,16 +152,23 @@ class BrowserUseObserver:
         api_key: str | None = None,
         model: str = DEFAULT_MODEL,
         ai_provider: AIProvider | None = None,
+        cdp_url: str | None = None,
     ):
         self._api_key = api_key if api_key is not None else os.environ.get("GEMINI_API_KEY")
         self._model = model
         self._ai_provider = ai_provider
+        self._cdp_url = cdp_url
 
     def observe(
         self,
         url: str,
         extract: dict[str, str] | None = None,
         include_screenshot: bool = False,
+        verify_target: Callable[[str], bool] | None = None,
+        page_ready_check: Callable[[str], bool] | None = None,
+        page_ready_timeout: float = 10.0,
+        skip_navigate_if_already_there: bool = False,
+        select_existing_target: bool = False,
     ) -> PageObservation:
         """Synchronous entry point (the BrowserObserver Protocol is
         sync; browser-use is natively async) — runs the real async
@@ -105,10 +182,68 @@ class BrowserUseObserver:
         `include_screenshot=True` (default False, purely additive)
         captures a real screenshot from inside the live session and
         understands it via the same real mechanism afterward, same
-        reasoning."""
+        reasoning.
+
+        `verify_target` (2026-08-13, M1 Marketplace Discovery Safety
+        Wiring, optional, `None` by default -- purely additive, every
+        existing caller keeps the exact original behavior) -- checked
+        against the real, post-navigation URL *inside* _observe_async(),
+        before page text or a screenshot is ever read (see there) -- a
+        rejected target never reaches text_content/screenshot_bytes,
+        extraction, or disk, not just "read then discarded" here.
+
+        `page_ready_check`/`page_ready_timeout` (2026-08-13, M1 Minimum
+        Page Readiness, optional, `None` by default -- purely additive)
+        -- when `page_ready_check` is given, a bounded, read-only poll
+        of `get_state_as_text()` runs after the first `verify_target`
+        check and before any content is trusted, stopping the moment
+        `page_ready_check(text)` is True. `verify_target` (if given) is
+        re-checked afterward against a freshly re-resolved real URL --
+        see _observe_async().
+
+        `skip_navigate_if_already_there` (2026-08-13, M1 Skip-Navigation
+        Fix, default `False` -- purely additive, every existing caller
+        keeps the exact original behavior) -- a real, source-verified
+        fact about the underlying CDP `Page.navigate()` call `navigate_
+        to()` always makes: it performs a genuine navigation/reload for
+        any full URL (not a same-document/#fragment navigation), even
+        when the destination is identical to the current page. A live
+        probe against a real, already-authenticated, already-fully-
+        loaded page confirmed this was silently discarding real,
+        already-rendered content on every observe() call and replacing
+        it with a freshly-reloading page. When `True`, the real current
+        URL is read fresh from the session *before* deciding whether to
+        navigate at all -- `navigate_to()` is skipped only on an exact
+        match; any other current URL falls back to the exact existing
+        navigate behavior. No safety gate is bypassed by skipping
+        navigation -- `verify_target`/`page_ready_check`/the second
+        `verify_target` all still run identically either way, against
+        the real, freshly-read current URL -- see _observe_async().
+
+        `select_existing_target` (2026-08-13, M1 Explicit CDP Target
+        Selection, default `False` -- purely additive, every existing
+        caller keeps the exact original behavior) -- a real,
+        source-verified fact about `BrowserSession.start()`/`connect()`:
+        it focuses whichever page target happens to be `page_targets[0]`
+        -- a purely positional choice (dict-iteration order), never based
+        on which real tab is focused/active/matches any URL. With a
+        single real tab open this happens to be correct by coincidence,
+        not by design. When `True`, the real existing target whose
+        current URL exactly matches `url` is found and explicitly
+        focused *before* any navigate-vs-skip decision -- fail-closed,
+        never a guess, on zero matches or on more than one exact match
+        (ambiguity) -- see _select_target_by_url()."""
         try:
             title, real_url, text_content, screenshot_bytes = asyncio.run(
-                self._observe_async(url, include_screenshot)
+                self._observe_async(
+                    url,
+                    include_screenshot,
+                    verify_target,
+                    page_ready_check,
+                    page_ready_timeout,
+                    skip_navigate_if_already_there,
+                    select_existing_target,
+                )
             )
         except BrowserUseError:
             raise
@@ -135,21 +270,115 @@ class BrowserUseObserver:
             screenshot_path=screenshot_path,
         )
 
-    async def _observe_async(self, url: str, include_screenshot: bool) -> tuple[str, str, str, bytes | None]:
+    async def _observe_async(
+        self,
+        url: str,
+        include_screenshot: bool,
+        verify_target: Callable[[str], bool] | None = None,
+        page_ready_check: Callable[[str], bool] | None = None,
+        page_ready_timeout: float = 10.0,
+        skip_navigate_if_already_there: bool = False,
+        select_existing_target: bool = False,
+    ) -> tuple[str, str, str, bytes | None]:
         from browser_use import BrowserSession
 
-        session = BrowserSession()
+        session = BrowserSession(cdp_url=self._cdp_url)
         await session.start()
         try:
-            await session.navigate_to(url)
+            # Explicit target selection (2026-08-13, M1): runs first, before
+            # any navigate-vs-skip decision below -- session.start() itself
+            # focuses whichever target happens to be page_targets[0] (a
+            # purely positional choice, confirmed by direct inspection of
+            # the installed browser_use source; not based on focus/activity/
+            # content). With multiple real tabs open, this could silently
+            # operate on the wrong one. When requested, re-focuses onto the
+            # one existing target whose real, current URL exactly matches
+            # `url`, fail-closed on zero or more-than-one matches -- see
+            # _select_target_by_url().
+            if select_existing_target:
+                await self._select_target_by_url(session, url)
+
+            # Skip-navigation fix (2026-08-13, M1): read the real, current
+            # URL *before* deciding whether to navigate at all -- never
+            # assume the attached tab/URL are already correct. navigate_to()
+            # always performs a genuine CDP Page.navigate() (a real reload)
+            # for any non-fragment URL, even an identical one -- confirmed
+            # by direct inspection of the installed browser_use source --
+            # which was silently discarding a real, already-authenticated,
+            # already-fully-loaded page on every call. Skipped only on an
+            # exact match; any other current URL (including right after a
+            # fresh session.start() with nothing loaded yet) falls back to
+            # the existing navigate_to() behavior unchanged.
+            if skip_navigate_if_already_there and await session.get_current_page_url() == url:
+                pass
+            else:
+                await session.navigate_to(url)
             title = await session.get_current_page_title()
             real_url = await session.get_current_page_url()
+            # Target verification (2026-08-13, M1 Marketplace Discovery
+            # Safety Wiring) happens right here -- after the real,
+            # post-navigation URL is known, but strictly *before*
+            # get_state_as_text()/take_screenshot() are ever called.
+            # A redirect (or an already-open, unexpected target on an
+            # attached CDP session) that fails this check means the real
+            # page text/screenshot are never read at all, not read and
+            # then discarded by a caller-side check afterward.
+            if verify_target is not None and not verify_target(real_url):
+                raise BrowserUseError(
+                    f"real destination after navigation is not within the approved target scope: {real_url!r} (requested {url!r})"
+                )
+
+            if page_ready_check is not None:
+                await self._wait_for_page_ready(session, page_ready_check, page_ready_timeout)
+
+                # Re-resolve, not reuse (2026-08-13, M1 Minimum Page
+                # Readiness): a client-side navigation/redirect can happen
+                # during the wait -- the pre-wait real_url must never stand
+                # in for what's actually current now.
+                real_url = await session.get_current_page_url()
+                if verify_target is not None and not verify_target(real_url):
+                    raise BrowserUseError(
+                        f"real destination after the readiness wait is not within the approved target scope: {real_url!r} (requested {url!r})"
+                    )
+
             text_content = await session.get_state_as_text()
             screenshot_bytes = await session.take_screenshot() if include_screenshot else None
         finally:
             await session.stop()
 
         return title, real_url, text_content, screenshot_bytes
+
+    async def _select_target_by_url(self, session, url: str) -> None:
+        """Thin delegator (2026-08-14) to the module-level
+        select_target_by_url() -- kept as a method so every existing
+        call site/test in this class is completely unaffected; the real
+        logic now lives in one place, shared with
+        DiscoveryScrollAdvancer."""
+        await select_target_by_url(session, url)
+
+    async def _wait_for_page_ready(
+        self,
+        session,
+        page_ready_check: Callable[[str], bool],
+        timeout: float,
+        poll_interval: float = 0.5,
+    ) -> None:
+        """Bounded, read-only polling on the same public, already-tested
+        get_state_as_text() -- never a fixed sleep. Checks the real
+        condition first (so an already-ready page returns immediately,
+        with zero waiting), then sleeps only if not ready yet. Raises
+        BrowserUseError with a clear, honest explanation on timeout --
+        never an unbounded retry, never a silent fall-through to reading
+        possibly-not-ready content."""
+        start = asyncio.get_event_loop().time()
+        while True:
+            text = await session.get_state_as_text()
+            if page_ready_check(text):
+                return
+            elapsed = asyncio.get_event_loop().time() - start
+            if elapsed >= timeout:
+                raise BrowserUseError(f"page did not become ready within {timeout}s (page_ready_check never returned True)")
+            await asyncio.sleep(poll_interval)
 
     def _save_screenshot(self, screenshot_bytes: bytes) -> str:
         from atlas.brain.models import new_id

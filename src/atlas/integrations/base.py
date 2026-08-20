@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
 
 # Two genuinely different capability shapes, kept as separate, narrow
 # Protocols rather than one "PlatformProvider" interface — the same
@@ -302,7 +302,12 @@ class BrowserObserver(Protocol):
 
     name: str
 
-    def observe(self, url: str, extract: dict[str, str] | None = None) -> PageObservation:
+    def observe(
+        self,
+        url: str,
+        extract: dict[str, str] | None = None,
+        verify_target: Callable[[str], bool] | None = None,
+    ) -> PageObservation:
         """Navigates to the real `url` and returns its real content.
         `extract` (optional) names specific fields to pull out, e.g.
         {"price": "the listed price"} — when omitted, only real raw
@@ -310,7 +315,19 @@ class BrowserObserver(Protocol):
         (page unreachable, timeout) rather than returning a fabricated
         empty observation — the same fail-loud discipline
         Digistore24Provider's Digistore24APIError already establishes
-        for a real, unexpected failure."""
+        for a real, unexpected failure.
+
+        `verify_target` (2026-08-13, M1 Marketplace Discovery Safety
+        Wiring, optional, `None` by default — purely additive) — when
+        given, is checked against the real, post-navigation destination
+        URL *before* any page text/screenshot is read, not just before
+        the result is trusted afterward. A real implementation never
+        reads/extracts/screenshots content from a target this check
+        rejects. This Protocol deliberately stays allowlist-agnostic
+        (no BrowserObserver implementation needs to know what "approved"
+        means) — the caller passes a real check function (e.g. a real
+        BrowserAllowlist.is_approved), the same "policy lives one layer
+        up" split this Protocol already draws for authentication."""
         ...
 
 

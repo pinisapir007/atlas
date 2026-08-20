@@ -5,3 +5,12 @@ description = "Fixture agent for brain delegation/monitoring tests"
 owner = "test"
 tags = ["fixture"]
 entrypoint = "tests.fixtures.assets.triggerable_sample.agent:SampleTriggerable"
+
+[config]
+# 2026-08-15, Delegator Fail-Closed Fix: previously undeclared, meaning
+# every real delegation test using this fixture only ever succeeded via
+# the now-removed unmatched-asset fallback, not a real category match.
+# "general" is Task's own default category (atlas.brain.models.Task) --
+# declaring it here is what makes test_delegates_to_capable_triggerable_
+# asset a real match instead of an accidental fallback hit.
+categories = ["general"]

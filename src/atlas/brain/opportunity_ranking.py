@@ -36,7 +36,7 @@ def opportunity_confidence(category: str, subject: str, knowledge: KnowledgeBase
     }
     combined = weighted_average_of_available(components, OPPORTUNITY_WEIGHTS)
 
-    findings = [f for f in knowledge.findings() if f.category == category and f.subject == subject]
+    findings = knowledge.findings(category=category, subject=subject)
     sourced = [f for f in findings if f.evidence]
     markets = Counter(f.market for f in findings if f.market)
     recommended_market = markets.most_common(1)[0][0] if markets else ""
@@ -65,7 +65,7 @@ def explain_opportunity_subject(category: str, subject: str, knowledge: Knowledg
     instead of silently omitting it.
     """
     result = opportunity_confidence(category, subject, knowledge)
-    findings = [f for f in knowledge.findings() if f.category == category and f.subject == subject]
+    findings = knowledge.findings(category=category, subject=subject)
 
     evidence = [
         {"finding_id": f.id, "source": f.source, "description": f.description, "evidence": f.evidence, "market": f.market}
@@ -152,6 +152,6 @@ def rank_opportunities(category: str, knowledge: KnowledgeBase) -> list[dict]:
     today — no MarketSignalProvider is registered, see
     atlas.integrations.signal_registry), this honestly returns an empty
     list, never a fabricated candidate."""
-    subjects = sorted({f.subject for f in knowledge.findings() if f.category == category and f.subject})
+    subjects = sorted({f.subject for f in knowledge.findings(category=category) if f.subject})
     unranked = [opportunity_confidence(category, subject, knowledge) for subject in subjects]
     return rank_by_confidence(unranked)

@@ -8,6 +8,7 @@ from atlas.assets.publishing_gateway.agent import PublishingGatewayAgent
 from atlas.assets.publishing_gateway.store import PublishingQueueStore
 from atlas.assets.recruitment_workforce.agent import RecruitmentAgent
 from atlas.brain.browser_plugin import DomainNotApprovedError
+from atlas.brain.business_plan_advance import create_affiliate_opportunity_from_terms
 from atlas.brain.capital_allocation import recommend_allocation
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.document_plugin import PathNotApprovedError
@@ -283,6 +284,19 @@ def build_parser() -> argparse.ArgumentParser:
     product_add.add_argument("--conversion-rate", type=float, default=0.0, dest="estimated_conversion")
     product_add.add_argument("--competition", type=float, default=0.0)
     product_add.add_argument("--difficulty", type=float, default=0.0, dest="content_difficulty")
+
+    commercial_terms_parser = affiliate_sub.add_parser(
+        "commercial-terms", help="supply real commercial terms for a Milestone-3-committed, approved opportunity"
+    )
+    commercial_terms_sub = commercial_terms_parser.add_subparsers(dest="commercial_terms_command", required=True)
+    commercial_terms_supply = commercial_terms_sub.add_parser(
+        "supply", help="supply real commercial terms for an approved 'affiliate_commercial_terms_needed' task"
+    )
+    commercial_terms_supply.add_argument("task_id")
+    commercial_terms_supply.add_argument("--commission", type=float, required=True, dest="commission_per_conversion")
+    commercial_terms_supply.add_argument("--link", required=True, dest="real_affiliate_link", help="the real affiliate tracking link")
+    commercial_terms_supply.add_argument("--provider", required=True, help="the real affiliate network, e.g. digistore24")
+    commercial_terms_supply.add_argument("--provider-product-id", default="", dest="provider_product_id", help="the network's own product id")
 
     revenue_parser = affiliate_sub.add_parser("revenue", help="record real affiliate revenue")
     revenue_sub = revenue_parser.add_subparsers(dest="revenue_command", required=True)
@@ -1200,6 +1214,21 @@ def _cmd_affiliate(args: argparse.Namespace) -> None:
                 estimated_conversion=args.estimated_conversion,
                 competition=args.competition,
                 content_difficulty=args.content_difficulty,
+            )
+            print(f"{opportunity.id}\t{opportunity.stage}\t{opportunity.product_name}\t{opportunity.goal_id}")
+
+    elif cmd == "commercial-terms":
+        if args.commercial_terms_command == "supply":
+            brain = CEOBrain()
+            opportunity = create_affiliate_opportunity_from_terms(
+                args.task_id,
+                brain.memory,
+                brain.opportunities,
+                brain.affiliate_store,
+                commission_per_conversion=args.commission_per_conversion,
+                real_affiliate_link=args.real_affiliate_link,
+                provider=args.provider,
+                provider_product_id=args.provider_product_id,
             )
             print(f"{opportunity.id}\t{opportunity.stage}\t{opportunity.product_name}\t{opportunity.goal_id}")
 

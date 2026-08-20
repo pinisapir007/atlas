@@ -1,0 +1,407 @@
+[1263]<a />
+[1172]<button aria-label=Collapse navigation expanded=true />
+[1773]<button title=Affiliate expanded=false />
+	View as:
+	Affiliate
+[1175]<a />
+	Dashboard
+[1176]<a />
+	Marketplace
+[1177]<div role=button />
+	Analytics
+[1178]<div role=button />
+	Sales & partners
+[1179]<div role=button />
+	Reports
+[1180]<div role=button />
+	Settings
+|scroll element|<mat-sidenav-content /> (0.0 pages above, 2.7 pages below)
+	[1186]<button />
+		Back
+	[1407]<div />
+		[1187]<button aria-label=Open notifications expanded=false />
+	[1411]<div />
+		[1188]<button aria-label=Open support center expanded=false />
+	[1415]<div />
+		[1189]<button />
+			ps
+	[1718]<a />
+		All offers on the affiliate marketplace
+	[1719]<a />
+		My favorites on the affiliate marketplace
+	Product Categories
+	[1779]<div />
+		[1780]<a />
+			Digital Products
+		[1781]<ds-icon />
+			[2432]<caret-down-icon />
+				[2430]<svg /> <!-- SVG content collapsed -->
+	[2433]<hr />
+	[1784]<div />
+		[1785]<a />
+			Events & Seminars
+		[1786]<ds-icon />
+			[2610]<caret-down-icon />
+				[2608]<svg /> <!-- SVG content collapsed -->
+	[2611]<hr />
+	[1789]<div />
+		[1790]<a />
+			Services
+		[1791]<ds-icon />
+			[2655]<caret-down-icon />
+				[2653]<svg /> <!-- SVG content collapsed -->
+	[2656]<hr />
+	[1794]<div />
+		[1795]<a />
+			Shipping Products
+		[1796]<ds-icon />
+			[2700]<caret-down-icon />
+				[2698]<svg /> <!-- SVG content collapsed -->
+	Filter
+	[2702]<div />
+		[2703]<a />
+			Payment method
+		[2704]<ds-icon />
+			[2846]<caret-down-icon />
+				[2844]<svg /> <!-- SVG content collapsed -->
+	[2847]<hr />
+	[2707]<div />
+		[2708]<a />
+			Payment options
+		[2709]<ds-icon />
+			[2910]<caret-down-icon />
+				[2908]<svg /> <!-- SVG content collapsed -->
+	[2911]<hr />
+	[2712]<div />
+		[2713]<a />
+			Language
+		[2714]<ds-icon />
+			[3088]<caret-down-icon />
+				[3086]<svg /> <!-- SVG content collapsed -->
+	[2912]<a />
+		German
+		3885
+	[2919]<a />
+		English
+		1352
+	[2926]<a />
+		Spanish
+		35
+	[2933]<a />
+		French
+		13
+	[2940]<a />
+		Italian
+	[2947]<a />
+		Dutch
+	[2954]<a />
+		Polish
+	[2961]<a />
+		Portuguese
+	[2968]<a />
+		Slovenian
+	[2717]<div />
+		[2718]<a />
+			Commission type
+		[2719]<ds-icon />
+			[3134]<caret-down-icon />
+				[3132]<svg /> <!-- SVG content collapsed -->
+	[3135]<hr />
+	[1534]<div />
+		[1535]<a />
+			Product price
+		[1536]<ds-icon />
+			[1670]<caret-down-icon />
+				[1668]<svg /> <!-- SVG content collapsed -->
+	[1671]<hr />
+	[1538]<div />
+		[1539]<a />
+			Cart Conversion
+		[1540]<ds-icon />
+			[1677]<caret-down-icon />
+				[1675]<svg /> <!-- SVG content collapsed -->
+	[1678]<hr />
+	[1542]<div />
+		[1543]<a />
+			Earnings/cart visitor
+		[1544]<ds-icon />
+			[1684]<caret-down-icon />
+				[1682]<svg /> <!-- SVG content collapsed -->
+	[1685]<hr />
+	[2722]<div />
+		[2723]<a />
+			Whitelist
+		[2724]<ds-icon />
+			[3184]<caret-down-icon />
+				[3182]<svg /> <!-- SVG content collapsed -->
+	[1533]<button />
+		Hide filters
+	|SHADOW(open)|[1704]<input type=text placeholder=Search id=t-3ayl3t7 />
+	[1517]<button />
+		Search
+	[5288]<div />
+		[5290]<ds-chip-text />
+			[5291]<div />
+				Language - English
+		[5295]<div />
+			[5293]<svg /> <!-- SVG content collapsed -->
+	[3223]<button />
+		Remove all filters
+	[3189]<span />
+		1352
+	[3190]<span />
+		Products
+	[3197]<button id=ds-select-0 />
+		USD
+	[3204]<button id=ds-select-2 />
+		Popularity
+	Joseph’s Well – Blockbuster Offer From Top Diamond Vendor | Book (printed)
+	[3280]<div />
+		[3281]<ds-marketplace-icon />
+			[3727]<ds-marketplace-bookmark-icon />
+				[3721]<svg /> <!-- SVG content collapsed -->
+	[3729]<ds-marketplace-icon />
+		[3792]<ds-marketplace-price-tag-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[3793]<p />
+		$83.67
+	[3794]<ds-icon />
+		[3819]<coin-hands-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[3795]<span />
+		75.00%
+	[3732]<ds-marketplace-icon />
+		[3801]<ds-marketplace-person-icon />
+			<svg /> <!-- SVG content collapsed -->
+	megadrought
+	[3802]<ds-marketplace-icon />
+		[3825]<ds-marketplace-shopping-cart-icon />
+			<svg /> <!-- SVG content collapsed -->
+	16.00%*
+	[3805]<ds-marketplace-icon />
+		[3831]<ds-marketplace-cancel-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[3806]<p />
+		5.41%*
+	[3735]<ds-marketplace-icon />
+		[3813]<ds-marketplace-calender-icon />
+			<svg /> <!-- SVG content collapsed -->
+	8/19/25
+	[3285]<a />
+		Sales page
+	[3738]<a />
+		Affiliate support page
+	$75.35
+	Net earnings/sale
+	[3845]<button />
+		Copy promo link
+	[3293]<div />
+	[3294]<a />
+	Earn 60% Commission Promoting Advanced Amino Formula | Supplements - health
+	[3325]<div />
+		[3326]<ds-marketplace-icon />
+			[3860]<ds-marketplace-bookmark-icon />
+				[3854]<svg /> <!-- SVG content collapsed -->
+	[3862]<ds-marketplace-icon />
+		[3925]<ds-marketplace-price-tag-icon />
+			<svg /> <!-- SVG content collapsed -->
+	$122.88
+	[3927]<ds-icon />
+		[3952]<coin-hands-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[3928]<span />
+		60.00%
+	[3865]<ds-marketplace-icon />
+		[3934]<ds-marketplace-person-icon />
+			<svg /> <!-- SVG content collapsed -->
+	soundview
+	[3935]<ds-marketplace-icon />
+		[3958]<ds-marketplace-shopping-cart-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[3936]<p />
+		7.00%*
+	[3938]<ds-marketplace-icon />
+		[3964]<ds-marketplace-cancel-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[3939]<p />
+		6.66%*
+	[3868]<ds-marketplace-icon />
+		[3946]<ds-marketplace-calender-icon />
+			<svg /> <!-- SVG content collapsed -->
+	12/1/22
+	[3329]<a />
+		Sales page
+	[3871]<a />
+		Affiliate support page
+	$69.33
+	Net earnings/sale
+	[3978]<button />
+		Copy promo link
+	[3337]<div />
+	[3338]<a />
+	The Genius Wave | Downloads
+	[3369]<div />
+		[3370]<ds-marketplace-icon />
+			[3993]<ds-marketplace-bookmark-icon />
+				[3987]<svg /> <!-- SVG content collapsed -->
+	[3995]<ds-marketplace-icon />
+		[4058]<ds-marketplace-price-tag-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4059]<p />
+		$49.99
+	[4060]<ds-icon />
+		[4085]<coin-hands-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4061]<span />
+		75.00%
+	[3998]<ds-marketplace-icon />
+		[4067]<ds-marketplace-person-icon />
+			<svg /> <!-- SVG content collapsed -->
+	thegeniuswave
+	[4068]<ds-marketplace-icon />
+		[4091]<ds-marketplace-shopping-cart-icon />
+			<svg /> <!-- SVG content collapsed -->
+	15.00%*
+	[4071]<ds-marketplace-icon />
+		[4097]<ds-marketplace-cancel-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4072]<p />
+		7.79%*
+	[4001]<ds-marketplace-icon />
+		[4079]<ds-marketplace-calender-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4002]<p />
+		4/6/24
+	[3373]<a />
+		Sales page
+	[4004]<a />
+		Affiliate support page
+	$43.27
+	Net earnings/sale
+	[4111]<button />
+		Copy promo link
+	[3381]<div />
+	[3382]<a />
+	Medicinal Garden Kit – BRAND NEW! | Deliverable
+	[3413]<div />
+		[3414]<ds-marketplace-icon />
+			[4126]<ds-marketplace-bookmark-icon />
+				[4120]<svg /> <!-- SVG content collapsed -->
+	[4128]<ds-marketplace-icon />
+		[4191]<ds-marketplace-price-tag-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4192]<p />
+		$73.10
+	[4193]<ds-icon />
+		[4218]<coin-hands-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4194]<span />
+		72.00%
+	[4131]<ds-marketplace-icon />
+		[4200]<ds-marketplace-person-icon />
+			<svg /> <!-- SVG content collapsed -->
+	bookofren
+	[4201]<ds-marketplace-icon />
+		[4224]<ds-marketplace-shopping-cart-icon />
+			<svg /> <!-- SVG content collapsed -->
+	18.00%*
+	[4204]<ds-marketplace-icon />
+		[4230]<ds-marketplace-cancel-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4205]<p />
+		2.07%*
+	[4134]<ds-marketplace-icon />
+		[4212]<ds-marketplace-calender-icon />
+			<svg /> <!-- SVG content collapsed -->
+	3/19/21
+	[3417]<a />
+		Sales page
+	[4137]<a />
+		Affiliate support page
+	$45.09
+	Net earnings/sale
+	[4244]<button />
+		Copy promo link
+	[3425]<div />
+	[3426]<a />
+	NEW: The Self-Sufficient Backyard | Book (printed)
+	[3457]<div />
+		[3458]<ds-marketplace-icon />
+			[4259]<ds-marketplace-bookmark-icon />
+				[4253]<svg /> <!-- SVG content collapsed -->
+	[4261]<ds-marketplace-icon />
+		[4324]<ds-marketplace-price-tag-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4325]<p />
+		$51.12
+	[4326]<ds-icon />
+		[4351]<coin-hands-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4327]<span />
+		75.00%
+	[4264]<ds-marketplace-icon />
+		[4333]<ds-marketplace-person-icon />
+			<svg /> <!-- SVG content collapsed -->
+	sbackyard
+	[4334]<ds-marketplace-icon />
+		[4357]<ds-marketplace-shopping-cart-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4335]<p />
+		9.00%*
+	[4337]<ds-marketplace-icon />
+		[4363]<ds-marketplace-cancel-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4338]<p />
+		1.28%*
+	[4267]<ds-marketplace-icon />
+		[4345]<ds-marketplace-calender-icon />
+			<svg /> <!-- SVG content collapsed -->
+	3/15/21
+	[3461]<a />
+		Sales page
+	[4270]<a />
+		Affiliate support page
+	$26.82
+	Net earnings/sale
+	[4377]<button />
+		Copy promo link
+	[3469]<div />
+	[3470]<a />
+	The Number 1 Serger and Overlocker Online Sewing Course | Member area and video courses
+	[3501]<div />
+		[3502]<ds-marketplace-icon />
+			[4392]<ds-marketplace-bookmark-icon />
+				[4386]<svg /> <!-- SVG content collapsed -->
+	[4394]<ds-marketplace-icon />
+		[4457]<ds-marketplace-price-tag-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4458]<p />
+		$75.91
+	[4459]<ds-icon />
+		[4484]<coin-hands-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4460]<span />
+		35.00%
+	[4397]<ds-marketplace-icon />
+		[4466]<ds-marketplace-person-icon />
+			<svg /> <!-- SVG content collapsed -->
+	creatory
+	[4467]<ds-marketplace-icon />
+		[4490]<ds-marketplace-shopping-cart-icon />
+			<svg /> <!-- SVG content collapsed -->
+	45.00%*
+	[4470]<ds-marketplace-icon />
+		[4496]<ds-marketplace-cancel-icon />
+			<svg /> <!-- SVG content collapsed -->
+	[4471]<p />
+		3.30%*
+	[4400]<ds-marketplace-icon />
+		[4478]<ds-marketplace-calender-icon />
+			<svg /> <!-- SVG content collapsed -->
+	7/16/24
+	[4403]<a />
+	$19.28
+	Net earnings/sale
+	Promo link requested
+	[3513]<div />
+	[3514]<a />

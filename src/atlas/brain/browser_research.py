@@ -20,9 +20,12 @@ the evidence came from (a real URL) and WHAT was actually read
 """
 
 from atlas.brain.browser_allowlist import BrowserAllowlist
+from atlas.brain.evidence_role_classification import UNKNOWN as ROLE_UNKNOWN
+from atlas.brain.evidence_role_classification import classify_evidence_role
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.models import Finding
-from atlas.integrations.base import BrowserObserver, PageObservation
+from atlas.brain.subject_verification import SubjectMatch, verify_subject_match
+from atlas.integrations.base import AIProvider, BrowserObserver, PageObservation
 
 _DESCRIPTION_MAX_CHARS = 500
 
@@ -32,6 +35,16 @@ class DomainNotApprovedError(ValueError):
     real BrowserAllowlist — fail-closed, the same default-deny
     discipline ResourceAllowlist already enforces for local files,
     applied here to the real, public internet."""
+
+
+class SubjectAttributionUnverified(ValueError):
+    """Raised when a real observation could not be confirmed (via
+    subject_verification.verify_subject_match()) to genuinely be about
+    the specific `subject` requested -- the exact same fail-closed
+    contract knowledge_source_research.py's own SubjectAttributionUnverified
+    already establishes, mirrored here rather than cross-imported (this
+    module has no dependency on that one -- the relationship runs the
+    other direction)."""
 
 
 def collect_evidence_from_url(
@@ -44,6 +57,7 @@ def collect_evidence_from_url(
     subject: str = "",
     market: str = "",
     extract: dict[str, str] | None = None,
+    ai_provider: AIProvider | None = None,
 ) -> Finding:
     """Navigates to a real, allowed URL, reads its real content, and
     records exactly one real, durable Finding from it. Raises
@@ -52,19 +66,66 @@ def collect_evidence_from_url(
     as an afterthought. Raises whatever real error `observer.observe()`
     raises on an unrecoverable failure (page unreachable, timeout) —
     never records a Finding from a failed or partial observation.
+
+    Required order (2026-08-17, ONE BRAIN Web Evidence Role
+    Classification): observe -> verify subject (only when `subject` is
+    given, mirroring knowledge_source_research.collect_evidence_from_
+    source()'s exact contract) -> classify evidence role -> create
+    Finding -> persist. A wrong-subject observation raises
+    SubjectAttributionUnverified and saves nothing -- role is never
+    classified for evidence that isn't even confirmed to be about the
+    right real-world entity.
     """
     if not allowlist.is_approved(url):
         raise DomainNotApprovedError(f"domain not approved for autonomous browsing: {url!r}")
 
-    observation = observer.observe(url, extract=extract)
+    # verify_target (2026-08-13, M1 Marketplace Discovery Safety Wiring):
+    # passed through to a real BrowserObserver implementation that honors
+    # it (e.g. BrowserUseObserver) so a redirect is caught *before* page
+    # text/screenshot are ever read -- not just before the result is
+    # trusted afterward. The post-observe re-check below is kept as
+    # defense-in-depth for any BrowserObserver implementation that doesn't
+    # honor verify_target (the Protocol parameter is optional) -- belt and
+    # suspenders, not redundant duplication.
+    observation = observer.observe(url, extract=extract, verify_target=allowlist.is_approved)
+
+    if not allowlist.is_approved(observation.url):
+        raise DomainNotApprovedError(
+            f"real destination after navigation/redirect is not approved: {observation.url!r} (requested {url!r})"
+        )
+
+    if subject:
+        match = verify_subject_match(observation, subject, ai_provider=ai_provider)
+        if match != SubjectMatch.VERIFIED_SAME:
+            raise SubjectAttributionUnverified(
+                f"real observation of {observation.url!r} could not be confirmed to be about the requested "
+                f"subject {subject!r} (attribution result: {match})"
+            )
+
+    # Evidence Role Classification (2026-08-17, ONE BRAIN Web Evidence
+    # Role Classification): the Brain (not this sensor) decides what
+    # kind of relationship this artifact has to its real-world source.
+    # "unknown" translates to Finding.evidence_role="" -- the single,
+    # already-established honest-empty convention every other Finding
+    # field already uses (never a second spelling of "unknown" on this
+    # field).
+    role = classify_evidence_role(observation, requested_subject=subject, ai_provider=ai_provider)
+    evidence_role = "" if role == ROLE_UNKNOWN else role
 
     finding = Finding(
         source=source,
         category=category,
         description=_real_description(observation),
-        evidence=url,
+        # evidence_provenance.py (2026-08-17, ONE BRAIN Evidence
+        # Provenance): the real, FINAL observed URL (observation.url,
+        # already re-verified against the allowlist above), never the
+        # originally-requested `url` -- a redirect landing on a
+        # different real page must never be recorded under the URL
+        # that was merely asked for.
+        evidence=observation.url,
         subject=subject,
         market=market,
+        evidence_role=evidence_role,
     )
     knowledge.save_finding(finding)
     return finding

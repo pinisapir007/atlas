@@ -21,7 +21,9 @@ def _world(tmp_path):
 
 
 def _sourced_finding(category: str, i: int) -> Finding:
-    return Finding(source="research", category=category, description=f"signal {i}", evidence=f"https://example.com/{i}")
+    # evidence_role="direct_assertion" (2026-08-17, ONE BRAIN Evidence Role
+    # Gate): scaffolding, not testing role/independence semantics itself.
+    return Finding(source="research", category=category, description=f"signal {i}", evidence=f"https://example.com/{i}", evidence_role="direct_assertion")
 
 
 def test_holds_when_evaluate_has_not_cleared_the_category(tmp_path):

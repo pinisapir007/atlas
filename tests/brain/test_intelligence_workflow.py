@@ -62,8 +62,13 @@ def _deps():
 
 
 def _seed_sufficient_evidence(knowledge: KnowledgeBase, category: str = "affiliate", subject: str = "KetoDNA"):
-    knowledge.save_finding(Finding(source="research", category=category, description="real evidence 1", evidence="https://example.com/1", subject=subject, market="US"))
-    knowledge.save_finding(Finding(source="research", category=category, description="real evidence 2", evidence="https://example.com/2", subject=subject, market="US"))
+    # evidence_role="direct_assertion" (2026-08-17, ONE BRAIN Evidence Role
+    # Gate): this scaffolding helper isn't testing role/independence
+    # semantics itself -- it just needs 2 genuinely real, trustworthy,
+    # independent sources to get downstream workflow-stage logic past the
+    # evidence gate, the same way it always has.
+    knowledge.save_finding(Finding(source="research", category=category, description="real evidence 1", evidence="https://example.com/1", subject=subject, market="US", evidence_role="direct_assertion"))
+    knowledge.save_finding(Finding(source="research", category=category, description="real evidence 2", evidence="https://example.com/2", subject=subject, market="US", evidence_role="direct_assertion"))
 
 
 def test_end_to_end_reasoning_chain_for_become_the_best_affiliate_marketing_business():
@@ -132,12 +137,29 @@ def test_halts_before_decision_engine_when_required_intelligence_is_missing():
 def test_halts_with_only_one_independently_sourced_finding():
     # One real, evidenced finding is still below MIN_INDEPENDENT_SOURCES (2).
     deps = _deps()
-    deps["knowledge"].save_finding(Finding(source="research", category="affiliate", description="only one", evidence="https://example.com/1", subject="KetoDNA"))
+    deps["knowledge"].save_finding(Finding(source="research", category="affiliate", description="only one", evidence="https://example.com/1", subject="KetoDNA", evidence_role="direct_assertion"))
 
     result = run_intelligence_workflow(_REALISTIC_GOAL, "affiliate", **deps)
 
     assert result.status == "halted_before_decision_engine"
     assert "1/2" in result.halted_reason
+
+
+def test_halts_when_only_relay_findings_with_unknown_claimant_exist():
+    """ONE BRAIN Evidence Role Gate (2026-08-17): two Findings, two real
+    distinct origins, both role=relay_or_quote with claimant unknown --
+    must still halt before the Decision Engine, exactly as if only one
+    (or zero) real independent source existed. Propagates through the
+    same centralized independent_source_count() this module already
+    reuses from decision_engine.decide() -- no local reimplementation."""
+    deps = _deps()
+    deps["knowledge"].save_finding(Finding(source="browser_research", category="affiliate", description="relay 1", evidence="https://site-a.example.com/ketodna", subject="KetoDNA", evidence_role="relay_or_quote"))
+    deps["knowledge"].save_finding(Finding(source="browser_research", category="affiliate", description="relay 2", evidence="https://site-b.example.com/ketodna", subject="KetoDNA", evidence_role="relay_or_quote"))
+
+    result = run_intelligence_workflow(_REALISTIC_GOAL, "affiliate", **deps)
+
+    assert result.status == "halted_before_decision_engine"
+    assert "0/2" in result.halted_reason
 
 
 def test_nothing_may_skip_stages_the_order_constant_is_the_founders_exact_order():

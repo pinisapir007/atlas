@@ -70,6 +70,7 @@ from dataclasses import asdict, dataclass, field
 
 from atlas.brain.business_execution_planning import BusinessExecutionPlan, build_execution_plan
 from atlas.brain.decision_engine import MIN_INDEPENDENT_SOURCES, decide
+from atlas.brain.evidence_provenance import independent_source_count
 from atlas.brain.intelligence_engine import collect_intelligence
 from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.intelligence_research_framework import build_research_framework
@@ -388,10 +389,15 @@ def run_intelligence_workflow(
     # never a second, competing bar. "Stop BEFORE the Decision Engine"
     # means stage 7 is never called at all when this fails, not called
     # and returned as a blocked/insufficient result.
-    sourced = [f for f in knowledge.findings() if f.category == category and f.evidence]
-    if len(sourced) < MIN_INDEPENDENT_SOURCES:
+    sourced = [f for f in knowledge.findings(category=category) if f.evidence]
+    # Independent-source counting (2026-08-17, ONE BRAIN Evidence
+    # Provenance) -- the same real evidence_provenance.
+    # independent_source_count() decision_engine.decide() itself now
+    # uses, reused here rather than a second, competing implementation.
+    independent_count = independent_source_count(sourced)
+    if independent_count < MIN_INDEPENDENT_SOURCES:
         halted_reason = (
-            f"Required intelligence is missing before the Decision Engine can run: only {len(sourced)}/"
+            f"Required intelligence is missing before the Decision Engine can run: only {independent_count}/"
             f"{MIN_INDEPENDENT_SOURCES} independently-sourced, evidence-backed Finding(s) exist for category "
             f"'{category}' — the same standing evidence bar atlas.brain.decision_engine.decide() itself "
             "requires before any investment verdict (decision_engine.MIN_INDEPENDENT_SOURCES). Record more "

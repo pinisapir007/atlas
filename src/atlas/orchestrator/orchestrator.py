@@ -8,6 +8,7 @@ from atlas.brain.models import Task, now
 from atlas.campaign.registry import CampaignRegistry, refresh_confidence
 from atlas.influencer.production import generate_campaign_creative_brief, generate_content_package, generate_landing_page_html
 from atlas.influencer.registry import InfluencerRegistry
+from atlas.orchestrator.compliance_review import review_content_compliance
 from atlas.orchestrator.models import ExecutionPlan, ExecutionStep
 from atlas.orchestrator.registry import ExecutionPlanRegistry
 
@@ -232,6 +233,17 @@ def _produce_content(
         missing_requirements.append("campaign has no destination_url (atlas campaign link-destination-url)")
     if not campaign.product_offer:
         missing_requirements.append("campaign has no product_offer")
+
+    # Mandatory Compliance & Trust Review gate (founder-ordered, 2026-08-05,
+    # after a real defect reached this point undetected): a package is not
+    # publish-ready just because every template slot is filled -- it must
+    # also clear the same real checks every package goes through from now
+    # on. Reuses the exact same blocked/named-reason mechanism as every
+    # other requirement above; no new step kind, no new status.
+    if not missing_templates and influencer.asset_library and influencer.platform_targets:
+        compliance = review_content_compliance(package)
+        if not compliance.passed:
+            missing_requirements.append("failed Compliance & Trust Review: " + "; ".join(compliance.issues))
 
     if missing_requirements:
         step.status = "blocked"

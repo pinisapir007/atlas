@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
 from atlas.brain.confidence import (
+    BOOTSTRAP_TASK_CATEGORIES,
+    BOOTSTRAP_TASK_CATEGORY,
     confidence_score,
     historical_success_score,
     internal_experiments_score,
@@ -88,26 +90,40 @@ def test_source_corroboration_ignores_other_categories(tmp_path):
 def test_source_corroboration_saturates_at_three_sourced_findings(tmp_path):
     kb = _kb(tmp_path)
     for i in range(5):
-        kb.save_finding(Finding(source="research", category="affiliate", description=f"f{i}", evidence=f"https://example.com/{i}"))
+        kb.save_finding(Finding(source="research", category="affiliate", description=f"f{i}", evidence=f"https://example.com/{i}", evidence_role="direct_assertion"))
 
     assert source_corroboration_score("affiliate", kb) == 1.0
 
 
 def test_source_corroboration_partial_with_two_sourced_findings(tmp_path):
     kb = _kb(tmp_path)
-    kb.save_finding(Finding(source="research", category="affiliate", description="f1", evidence="https://example.com/1"))
-    kb.save_finding(Finding(source="research", category="affiliate", description="f2", evidence="https://example.com/2"))
+    kb.save_finding(Finding(source="research", category="affiliate", description="f1", evidence="https://example.com/1", evidence_role="direct_assertion"))
+    kb.save_finding(Finding(source="research", category="affiliate", description="f2", evidence="https://example.com/2", evidence_role="direct_assertion"))
 
     assert abs(source_corroboration_score("affiliate", kb) - (2 / 3)) < 1e-9
+
+
+def test_source_corroboration_relay_findings_with_unknown_claimant_do_not_corroborate(tmp_path):
+    """ONE BRAIN Evidence Role Gate (2026-08-17): two real, distinct
+    origins, both role=relay_or_quote with claimant unknown -- must
+    score as zero independent sources, the same as no evidence at all
+    beyond the None-vs-0.0 distinction (sourced Findings exist, so this
+    isn't None; but corroboration itself must be 0.0, not partial
+    credit for relay noise)."""
+    kb = _kb(tmp_path)
+    kb.save_finding(Finding(source="browser_research", category="affiliate", description="relay 1", evidence="https://site-a.example.com/x", evidence_role="relay_or_quote"))
+    kb.save_finding(Finding(source="browser_research", category="affiliate", description="relay 2", evidence="https://site-b.example.com/y", evidence_role="relay_or_quote"))
+
+    assert source_corroboration_score("affiliate", kb) == 0.0
 
 
 def test_source_corroboration_scoped_to_a_provider_ignores_other_providers(tmp_path):
     kb = _kb(tmp_path)
     kb.save_finding(
-        Finding(source="research", category="affiliate", description="digistore24 fact", evidence="https://x/1", provider="digistore24")
+        Finding(source="research", category="affiliate", description="digistore24 fact", evidence="https://x/1", provider="digistore24", evidence_role="direct_assertion")
     )
     kb.save_finding(
-        Finding(source="research", category="affiliate", description="shareasale fact", evidence="https://x/2", provider="shareasale")
+        Finding(source="research", category="affiliate", description="shareasale fact", evidence="https://x/2", provider="shareasale", evidence_role="direct_assertion")
     )
 
     assert source_corroboration_score("affiliate", kb, provider="digistore24") == 1 / 3
@@ -126,8 +142,8 @@ def test_source_corroboration_scoped_to_a_provider_ignores_category_general_find
 
 def test_source_corroboration_scoped_to_a_subject_ignores_other_subjects(tmp_path):
     kb = _kb(tmp_path)
-    kb.save_finding(Finding(source="research", category="affiliate", description="a", evidence="https://x/1", subject="KetoDNA"))
-    kb.save_finding(Finding(source="research", category="affiliate", description="b", evidence="https://x/2", subject="BudgetWise"))
+    kb.save_finding(Finding(source="research", category="affiliate", description="a", evidence="https://x/1", subject="KetoDNA", evidence_role="direct_assertion"))
+    kb.save_finding(Finding(source="research", category="affiliate", description="b", evidence="https://x/2", subject="BudgetWise", evidence_role="direct_assertion"))
 
     assert source_corroboration_score("affiliate", kb, subject="KetoDNA") == 1 / 3
     assert source_corroboration_score("affiliate", kb, subject="BudgetWise") == 1 / 3
@@ -303,3 +319,29 @@ def test_confidence_score_rises_with_real_measured_profit(tmp_path):
     after = confidence_score("affiliate", kb, memory, kpis)["score"]
 
     assert after > before
+
+
+# --- Shape-vs-Implementation standing law (docs/BUSINESSMAN_V1_SOURCE_OF_TRUTH.md
+# §2, added 2026-08-12, Milestone 3 Vision Milestone Review) ---
+
+
+def test_bootstrap_task_category_scalar_form_is_completely_untouched():
+    # decision_apply.py indexes this exact constant directly as a single
+    # string and is locked, unmodified code -- this pins its shape/values
+    # so a future edit can't silently break that dependency.
+    assert BOOTSTRAP_TASK_CATEGORY == {
+        "affiliate": "affiliate_pipeline",
+        "digital_product": "revenue_digital_product",
+        "content": "revenue_content_assets",
+        "recruitment": "revenue_recruitment_leads",
+    }
+
+
+def test_bootstrap_task_categories_is_plural_shaped_and_honestly_single_valued_today():
+    assert set(BOOTSTRAP_TASK_CATEGORIES.keys()) == set(BOOTSTRAP_TASK_CATEGORY.keys())
+    for category, scalar_channel in BOOTSTRAP_TASK_CATEGORY.items():
+        assert isinstance(BOOTSTRAP_TASK_CATEGORIES[category], list)
+        # Honest today: exactly one real channel per category, no
+        # fabricated second option -- but the shape itself no longer
+        # forecloses one existing later.
+        assert BOOTSTRAP_TASK_CATEGORIES[category] == [scalar_channel]

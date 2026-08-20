@@ -35,9 +35,18 @@ class Delegator:
 
         candidates = [r for r in registry.records() if r.entrypoint]
         matched = [r for r in candidates if task.category in r.config.get("categories", [])]
-        unmatched = [r for r in candidates if r not in matched]
 
-        for record in matched + unmatched:
+        # Fail-closed (2026-08-15, Delegator Fail-Closed Fix, Foundation
+        # Design approved): only assets that actually declare this
+        # category are ever tried. The old behavior -- falling through to
+        # every OTHER registered asset, in id-sorted order, until one
+        # happened not to raise UnsupportedVerb -- was a proven, recurring
+        # bug class (the exact failure that once caused a Campaign-review
+        # Task to be silently dispatched to an unrelated asset before
+        # campaign_execution was registered). "I don't have a registered
+        # capability for this" is now an honest, auditable answer -- never
+        # a guess.
+        for record in matched:
             try:
                 result = registry.dispatch(record.id, "run", task=task)
             except UnsupportedVerb:
@@ -48,7 +57,7 @@ class Delegator:
 
         task.transition(
             "blocked",
-            f"no capable asset for required_capability={task.required_capability}",
+            f"no registered asset declares category={task.category!r} — fail-closed, never dispatched to an unrelated asset",
         )
         return None
 

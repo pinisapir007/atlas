@@ -50,7 +50,11 @@ def test_manual_task_breakdown_and_daily_cycle(tmp_path, monkeypatch, capsys):
     main(["brain", "status"])
     status_out = capsys.readouterr().out
     assert "Identify prospects" in status_out
-    assert "delegated" in status_out or "done" in status_out
+    # 2026-08-15, Delegator Fail-Closed Fix: "analyze_revenue" matches no
+    # asset with a real entrypoint (`analytics` is registered metadata-
+    # only) -- this task now honestly reports blocked instead of landing
+    # on an unrelated fallback asset.
+    assert "blocked" in status_out
 
     main(["brain", "kpi", "record", "revenue", "0"])
     capsys.readouterr()
@@ -178,8 +182,8 @@ def test_allocate_recommends_investing_new_for_a_real_cleared_category(tmp_path,
     from atlas.brain.models import Finding
 
     kb = KnowledgeBase()
-    kb.save_finding(Finding(source="research", category="affiliate", description="s1", evidence="https://example.com/1"))
-    kb.save_finding(Finding(source="research", category="affiliate", description="s2", evidence="https://example.com/2"))
+    kb.save_finding(Finding(source="research", category="affiliate", description="s1", evidence="https://example.com/1", evidence_role="direct_assertion"))
+    kb.save_finding(Finding(source="research", category="affiliate", description="s2", evidence="https://example.com/2", evidence_role="direct_assertion"))
 
     main(["brain", "allocate", "affiliate"])
     out = capsys.readouterr().out
@@ -197,10 +201,20 @@ def test_collect_from_a_real_document_produces_a_real_finding(tmp_path, monkeypa
 
     from unittest.mock import patch
 
-    with patch(
-        "atlas.brain.evidence_validation.get_ai_provider",
-        return_value=type("P", (), {"complete_structured": staticmethod(lambda prompt, fields: {"relevant": "yes", "reason": "directly discusses demand"})})(),
-    ):
+    # ONE BRAIN Web Evidence Role Classification (2026-08-17):
+    # collect_evidence_from_source() now also calls classify_evidence_role()
+    # (via its own, separate atlas.brain.evidence_role_classification.
+    # get_ai_provider import) -- patched here too so this test never makes
+    # a real network/AI call, the same discipline every other test in this
+    # suite already follows.
+    fake_provider = type("P", (), {
+        "complete_structured": staticmethod(
+            lambda prompt, fields: {"relevant": "yes", "reason": "directly discusses demand"} if "relevant" in fields
+            else {"role": "direct_assertion", "reason": "founder's own first-hand notes"}
+        )
+    })()
+    with patch("atlas.brain.evidence_validation.get_ai_provider", return_value=fake_provider), \
+         patch("atlas.brain.evidence_role_classification.get_ai_provider", return_value=fake_provider):
         main(["brain", "collect", str(doc), "affiliate", "founder-notes", "is there real demand for keto snacks?"])
     out = capsys.readouterr().out
     assert "affiliate" in out
@@ -270,6 +284,19 @@ def test_opportunities_ranks_categories_by_confidence_descending(tmp_path, monke
     main(["brain", "finding", "add", "research", "ugc", "an idea with no source yet"])
     capsys.readouterr()
 
+    # ONE BRAIN Evidence Role Gate (2026-08-17): `atlas brain finding add`
+    # (writer #11, manual founder intake) doesn't yet expose an
+    # --evidence-role flag -- deliberately out of this round's scope (see
+    # the Evidence Role Gate implementation's own scope lock). Each
+    # findings' real, sourced evidence here genuinely represents a direct,
+    # trustworthy source in this scenario -- marking it explicitly stands
+    # in for that known, still-open CLI extension.
+    from atlas.brain.knowledge import KnowledgeBase
+    kb = KnowledgeBase()
+    for finding in kb.findings(category="affiliate"):
+        finding.evidence_role = "direct_assertion"
+        kb.save_finding(finding)
+
     main(["brain", "opportunities"])
     out = capsys.readouterr().out
     lines = [line for line in out.strip().splitlines() if line]
@@ -305,6 +332,14 @@ def test_decisions_list_and_show_after_a_real_tick(tmp_path, monkeypatch, capsys
     main(["brain", "finding", "add", "research", "digital_product", "signal 2", "--evidence", "https://example.com/2"])
     capsys.readouterr()
 
+    # ONE BRAIN Evidence Role Gate (2026-08-17): see the analogous comment
+    # in test_opportunities_ranks_categories_by_confidence_descending above.
+    from atlas.brain.knowledge import KnowledgeBase
+    kb = KnowledgeBase()
+    for finding in kb.findings(category="digital_product"):
+        finding.evidence_role = "direct_assertion"
+        kb.save_finding(finding)
+
     main(["brain", "tick"])
     capsys.readouterr()
 
@@ -330,6 +365,14 @@ def test_decisions_show_names_the_real_chosen_provider_for_affiliate(tmp_path, m
     capsys.readouterr()
     main(["brain", "finding", "add", "research", "affiliate", "signal 2", "--evidence", "https://example.com/2"])
     capsys.readouterr()
+
+    # ONE BRAIN Evidence Role Gate (2026-08-17): see the analogous comment
+    # in test_opportunities_ranks_categories_by_confidence_descending above.
+    from atlas.brain.knowledge import KnowledgeBase
+    kb = KnowledgeBase()
+    for finding in kb.findings(category="affiliate"):
+        finding.evidence_role = "direct_assertion"
+        kb.save_finding(finding)
 
     main(["brain", "tick"])
     capsys.readouterr()

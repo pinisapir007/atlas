@@ -27,10 +27,21 @@ class Registry:
     time a capability action is invoked on it.
     """
 
-    def __init__(self, records: list[AssetRecord] | None = None, store: Store | None = None):
+    def __init__(
+        self,
+        records: list[AssetRecord] | None = None,
+        store: Store | None = None,
+        instances: dict[str, object] | None = None,
+    ):
         loaded = records if records is not None else discover_manifests()
         self._records = {r.id: r for r in loaded}
-        self._instances: dict[str, object] = {}
+        # Pre-seeded instances (2026-08-11, Qualification Run #1 root-cause
+        # fix) -- the ONLY real way a caller can hand an asset real,
+        # explicit dependencies (e.g. a specific KnowledgeBase) instead of
+        # the zero-argument construction _instance() falls back to below.
+        # A pre-seeded id is never re-instantiated. Empty/omitted changes
+        # nothing for any existing caller.
+        self._instances: dict[str, object] = dict(instances) if instances else {}
         self._store = store if store is not None else JSONStore()
 
     def records(self) -> list[AssetRecord]:

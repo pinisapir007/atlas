@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from atlas.brain.cashflow import profit, roi
+from atlas.brain.evidence_provenance import independent_source_count
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.memory import BrainMemory
@@ -91,6 +92,34 @@ BOOTSTRAP_TASK_CATEGORY = {
     "recruitment": "revenue_recruitment_leads",
 }
 
+# Plural counterpart of BOOTSTRAP_TASK_CATEGORY (2026-08-12, Milestone 3
+# Vision Milestone Review -- docs/BUSINESSMAN_V1_SOURCE_OF_TRUTH.md's
+# Shape-vs-Implementation standing law). BOOTSTRAP_TASK_CATEGORY's
+# dict[str, str] shape was found to be a real architectural ceiling: a
+# category can, in principle, have more than one real execution channel
+# (see OPPORTUNITY_DISCOVERY_BOOTSTRAP_OVERRIDES right below -- the one
+# real, live case of exactly that), and a scalar value structurally
+# cannot represent that without a breaking type change later.
+#
+# A new, separate, plural-shaped map -- not an edit to
+# BOOTSTRAP_TASK_CATEGORY itself -- for the exact same reason
+# OPPORTUNITY_DISCOVERY_BOOTSTRAP_OVERRIDES was already kept separate:
+# decision_apply.py indexes BOOTSTRAP_TASK_CATEGORY[category] directly as
+# a single string and is locked, untouched code (Design section 5 of
+# docs/DESIGN_REVENUE_STRATEGY.md) -- this map exists so
+# revenue_strategy.py can read a real, honestly-plural shape without
+# requiring any change to decision_apply.py.
+#
+# Every value is a single-item list today -- real, not fabricated: no
+# category has more than one real execution channel yet. The shape is
+# ready for a second real entry the day one exists; no selection logic
+# among multiple entries is built here, since none would have any real
+# evidence to act on yet (see the standing law's own "logic is built
+# only with real evidence" clause).
+BOOTSTRAP_TASK_CATEGORIES: dict[str, list[str]] = {
+    category: [channel] for category, channel in BOOTSTRAP_TASK_CATEGORY.items()
+}
+
 # Opportunity Discovery V1 override (2026-08-03, feature_flags.
 # opportunity_discovery_v1_enabled()-gated in decision_apply.py): once real,
 # evidence-driven discovery is live, "affiliate" should bootstrap into the
@@ -152,18 +181,20 @@ def source_corroboration_score(
     deeper — to a specific candidate product/topic (Finding.subject) —
     the mechanism opportunity_ranking.py uses to compare specific
     opportunities within a category (2026-08-03, Opportunity Discovery V1).
-    """
-    sourced = [
-        f
-        for f in knowledge.findings()
-        if f.category == category
-        and f.evidence
-        and (provider is None or f.provider == provider)
-        and (subject is None or f.subject == subject)
-    ]
+
+    Independent-source counting (2026-08-17, ONE BRAIN Evidence
+    Provenance): uses evidence_provenance.independent_source_count()
+    rather than a raw len(sourced) — real Findings that share a known
+    claimant or a known real-world origin (the same underlying source,
+    observed twice, or syndicated/copied content) count once, never
+    once-per-Finding; Findings with fully unknown provenance never
+    inflate the count either. The one, shared implementation every
+    other real independence consumer in this codebase now also uses —
+    not a local reimplementation."""
+    sourced = [f for f in knowledge.findings(category=category, provider=provider, subject=subject) if f.evidence]
     if not sourced:
         return None
-    return min(len(sourced) / SOURCE_SATURATION_SAMPLE, 1.0)
+    return min(independent_source_count(sourced) / SOURCE_SATURATION_SAMPLE, 1.0)
 
 
 def recency_score(
@@ -174,13 +205,7 @@ def recency_score(
     findings at all scores None (no signal, not a false zero). `provider`
     and `subject` scope the same way as source_corroboration_score() —
     see there."""
-    findings = [
-        f
-        for f in knowledge.findings()
-        if f.category == category
-        and (provider is None or f.provider == provider)
-        and (subject is None or f.subject == subject)
-    ]
+    findings = knowledge.findings(category=category, provider=provider, subject=subject)
     if not findings:
         return None
     now = datetime.now(timezone.utc)

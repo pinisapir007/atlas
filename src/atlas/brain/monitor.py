@@ -33,13 +33,20 @@ class Monitor:
         try:
             report = registry.dispatch(task.assigned_asset_id, "report")
         except UnsupportedVerb:
-            task.transition("done", "asset does not report status; assumed complete on dispatch")
+            # try_complete(), not transition("done", ...) directly (2026-08-17,
+            # ONE BRAIN Root Implementation): a Task that declared a real
+            # expected_outcome must never reach "done" on the strength of
+            # "the asset didn't even report status" alone -- falls back to
+            # "blocked" (awaiting independent verification) instead. Every
+            # Task without expected_outcome (the overwhelming majority,
+            # today's exact behavior) still reaches "done" here, unchanged.
+            task.try_complete("asset does not report status; assumed complete on dispatch")
         else:
             status = report.get("status") if isinstance(report, dict) else None
             if status in ("failed", "error"):
                 task.transition("failed", f"asset reported: {report}")
             else:
-                task.transition("done", f"asset reported: {report}")
+                task.try_complete(f"asset reported: {report}")
 
         memory.save_task(task)
         memory.append_log(

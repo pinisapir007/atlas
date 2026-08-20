@@ -9,6 +9,20 @@ OPEN_STATUSES = {
     "pending_approval",
     "delegated",
     "in_progress",
+    # "blocked" (2026-08-18, P0 fix): a blocked Task means Delegator found
+    # no registered asset for its category -- a structural capability gap,
+    # not a transient failure. Recreating an identical Task next tick can
+    # never succeed differently (the same category will hit the same "no
+    # matching asset" block again), unlike "done"/"failed" (deliberately
+    # still excluded: a completed goal legitimately gets a fresh task to
+    # keep advancing it, and a failed attempt is genuinely worth retrying).
+    # Live-verified before this fix: 1,296 blocked Tasks across 8 Goals,
+    # the same 5-6 descriptions duplicated ~150x each over ~3 days at the
+    # real 30-minute tick cadence -- pure waste, since no existing
+    # mechanism re-evaluates a blocked Task when its capability gap is
+    # later closed anyway, so counting it as "already has open work" loses
+    # no real retry behavior that existed before this fix.
+    "blocked",
 }
 
 _CATEGORY_KEYWORDS = {

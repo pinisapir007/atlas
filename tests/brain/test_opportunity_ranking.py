@@ -90,13 +90,13 @@ def test_rank_opportunities_orders_by_confidence_descending(tmp_path):
     kb = _kb(tmp_path)
     # "Strong" has two independent sources; "Weak" has one.
     kb.save_finding(
-        Finding(source="research", category="affiliate", description="a", evidence="https://x/1", subject="Strong")
+        Finding(source="research", category="affiliate", description="a", evidence="https://x/1", subject="Strong", evidence_role="direct_assertion")
     )
     kb.save_finding(
-        Finding(source="research", category="affiliate", description="b", evidence="https://x/2", subject="Strong")
+        Finding(source="research", category="affiliate", description="b", evidence="https://x/2", subject="Strong", evidence_role="direct_assertion")
     )
     kb.save_finding(
-        Finding(source="research", category="affiliate", description="c", evidence="https://x/3", subject="Weak")
+        Finding(source="research", category="affiliate", description="c", evidence="https://x/3", subject="Weak", evidence_role="direct_assertion")
     )
 
     ranked = rank_opportunities("affiliate", kb)

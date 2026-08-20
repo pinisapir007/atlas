@@ -10,8 +10,10 @@ from atlas.brain.console import (
     recent_activity,
     summarize_department_report,
 )
+from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.memory import BrainMemory
-from atlas.brain.models import Proposal, Task
+from atlas.brain.models import Claim, Opportunity, Proposal, Task
+from atlas.brain.opportunities import OpportunityStore
 from atlas.core.registry import Registry
 from atlas.core.store import JSONStore
 
@@ -153,6 +155,35 @@ def test_find_warnings_detects_maya_stopped_and_revenue_idle(tmp_path, monkeypat
 
     assert any("MAYA is stopped" in w for w in warnings)
     assert any("Revenue channels are idle" in w for w in warnings)
+
+
+def test_find_warnings_detects_a_pinned_identity_conflict(tmp_path):
+    """Test E, warning half (2026-08-17, ONE BRAIN Root Implementation) --
+    two already-real Opportunities later linked by a supported
+    possibly_same_as Claim must be surfaced, read-only, never merged."""
+    from atlas.brain.models import Finding
+
+    knowledge = KnowledgeBase(tmp_path / "knowledge.json")
+    opportunities = OpportunityStore(tmp_path / "opportunities.json")
+    brain = CEOBrain(
+        memory=BrainMemory(tmp_path / "brain.json"),
+        registry=Registry(store=JSONStore(tmp_path / "state.json")),
+        knowledge=knowledge,
+        opportunities=opportunities,
+    )
+    opportunities.save_opportunity(Opportunity(subject="prostadine::vendorA", description="d", category="affiliate"))
+    opportunities.save_opportunity(Opportunity(subject="prostadine::vendorB", description="d", category="affiliate"))
+    link_finding = Finding(source="test", category="affiliate", description="d", evidence="https://x.com/1", subject="prostadine::vendorA")
+    knowledge.save_finding(link_finding)
+    knowledge.save_claim(Claim(
+        subject_id="prostadine::vendorA", predicate="possibly_same_as", object_id="prostadine::vendorB",
+        evidence_finding_ids=[link_finding.id],
+    ))
+
+    warnings = find_warnings(brain)
+
+    assert any("prostadine::vendorA" in w and "prostadine::vendorB" in w for w in warnings)
+    assert len(opportunities.opportunities()) == 2  # untouched
 
 
 def test_find_warnings_detects_pending_redesign_proposals(tmp_path):

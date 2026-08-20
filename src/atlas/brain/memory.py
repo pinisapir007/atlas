@@ -25,6 +25,20 @@ class BrainMemory:
     def __init__(self, path: Path = Path(".atlas/brain.json"), store: BrainStore | None = None):
         self._store = store if store is not None else JSONFileStore(path)
 
+    @property
+    def path(self) -> Path:
+        """The real file this BrainMemory persists to, when its store
+        exposes one (P0 Stage 2A, 2026-08-19) -- used to colocate the
+        real tick lock (ceo.py) next to the real state it protects, so
+        every existing caller/test that already isolates BrainMemory
+        via its own tmp_path (the established pattern throughout this
+        test suite) gets an isolated lock for free, with no separate
+        parameter to remember at any of the ~6 real CEOBrain-constructing
+        test helpers. Falls back to JSONFileStore's own default path if
+        the real store doesn't expose one (e.g. a future non-file
+        backend) -- never raises."""
+        return getattr(self._store, "path", Path(".atlas/brain.json"))
+
     def _read(self) -> dict:
         data = self._store.read()
         if data is None:

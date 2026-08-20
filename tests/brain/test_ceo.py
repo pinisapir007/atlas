@@ -1,10 +1,13 @@
 from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.decisions import DecisionLog
+from atlas.brain.investigations import InvestigationStore
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.ledger import Ledger
+from atlas.brain.marketplace_catalog import MarketplaceCatalogStore
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Finding, Goal, Task
+from atlas.brain.opportunities import OpportunityStore
 from atlas.campaign.registry import CampaignRegistry, create_campaign, set_status
 from atlas.core.registry import Registry
 from atlas.core.store import JSONStore
@@ -25,22 +28,57 @@ def _brain(tmp_path):
         influencers=InfluencerRegistry(tmp_path / ".atlas" / "influencers.json"),
         execution_plans=ExecutionPlanRegistry(tmp_path / ".atlas" / "execution_plans.json"),
         affiliate_store=AffiliateStore(tmp_path / ".atlas" / "affiliate_intelligence.json"),
+        opportunities=OpportunityStore(tmp_path / ".atlas" / "opportunities.json"),
+        marketplace_catalog=MarketplaceCatalogStore(tmp_path / ".atlas" / "marketplace_catalog.json"),
+        investigations=InvestigationStore(tmp_path / ".atlas" / "investigations.json"),
     )
 
 
-def test_tick_delegates_a_new_goal_to_a_capable_fallback_asset(tmp_path):
-    # Category "analyze_revenue" matches no asset's declared categories, so
-    # this falls to Delegator's unmatched-fallback path (first Triggerable
-    # asset that accepts it, in id order) — which asset that is depends on
-    # what's registered, not a specific business rule that it must be MAYA.
+def test_default_registry_wires_research_discovery_to_this_brains_own_knowledge(tmp_path):
+    # Qualification Run #1 root cause, gap #7 (docs/QUALIFICATION_RUN_2026-08-11.md):
+    # Registry._instance() has no way to pass real constructor arguments to a
+    # lazily-imported asset, so research_discovery previously always fell back
+    # to its own default KnowledgeBase() -- never the one this CEOBrain
+    # actually reads Findings from. Deliberately NOT passing `registry=` here
+    # -- this exercises CEOBrain's own default-Registry-construction path,
+    # the one real path this fix touches (an explicitly-provided Registry,
+    # like every other test in this file uses, is never auto-seeded).
+    kb = KnowledgeBase(tmp_path / "knowledge.json")
+    brain = CEOBrain(
+        memory=BrainMemory(tmp_path / "brain.json"),
+        knowledge=kb,
+        decisions=DecisionLog(tmp_path / "decisions.json"),
+        ledger=Ledger(tmp_path / "ledger.json"),
+        campaigns=CampaignRegistry(tmp_path / ".atlas" / "campaigns.json"),
+        influencers=InfluencerRegistry(tmp_path / ".atlas" / "influencers.json"),
+        execution_plans=ExecutionPlanRegistry(tmp_path / ".atlas" / "execution_plans.json"),
+        affiliate_store=AffiliateStore(tmp_path / ".atlas" / "affiliate_intelligence.json"),
+    )
+
+    research_discovery_instance = brain.registry._instance("research_discovery")
+
+    assert research_discovery_instance._knowledge is kb
+    assert research_discovery_instance._knowledge is brain.knowledge
+
+
+def test_tick_blocks_a_new_goal_when_no_registered_asset_matches_its_category(tmp_path):
+    """Replaces test_tick_delegates_a_new_goal_to_a_capable_fallback_asset
+    (2026-08-15, Delegator Fail-Closed Fix, Foundation Design approved).
+    Category "analyze_revenue" matches no asset with a real, working
+    entrypoint (`analytics` declares the category but is registered
+    metadata-only, no entrypoint at all) — this used to fall through to
+    Delegator's unmatched-fallback path (whichever unrelated Triggerable
+    asset happened to be first in id order, e.g. MAYA). The new, approved
+    intent is "fail closed; never guess a capability" — this task must now
+    honestly report blocked, not silently land on an unrelated asset."""
     brain = _brain(tmp_path)
     brain.add_goal("Grow monthly revenue", priority=1)
 
     tasks = brain.tick()
 
     assert len(tasks) == 1
-    assert tasks[0].assigned_asset_id is not None
-    assert tasks[0].status in ("delegated", "done")
+    assert tasks[0].assigned_asset_id is None
+    assert tasks[0].status == "blocked"
 
 
 def test_risky_task_requires_approval_not_delegation(tmp_path):
@@ -75,8 +113,12 @@ def test_approve_delegates_previously_gated_task(tmp_path):
 
     approved = brain.approve(task.id)
 
-    assert approved.status in ("delegated", "done")
-    assert approved.assigned_asset_id is not None  # unmatched-category fallback, not a specific-asset business rule
+    # 2026-08-15, Delegator Fail-Closed Fix: "reallocate_budget" matches no
+    # asset with a real entrypoint (`cfo` declares the category but is
+    # registered metadata-only) -- this used to land on an unrelated
+    # fallback asset; now it honestly reports blocked instead.
+    assert approved.status == "blocked"
+    assert approved.assigned_asset_id is None
 
 
 def test_reject_marks_task_failed(tmp_path):
@@ -460,10 +502,10 @@ def test_tick_auto_promotes_a_well_evidenced_category_into_a_real_goal_and_dispa
     monkeypatch.chdir(tmp_path)
     brain = _brain(tmp_path)
     brain.knowledge.save_finding(
-        Finding(source="research", category="digital_product", description="signal 1", evidence="https://example.com/1")
+        Finding(source="research", category="digital_product", description="signal 1", evidence="https://example.com/1", evidence_role="direct_assertion")
     )
     brain.knowledge.save_finding(
-        Finding(source="research", category="digital_product", description="signal 2", evidence="https://example.com/2")
+        Finding(source="research", category="digital_product", description="signal 2", evidence="https://example.com/2", evidence_role="direct_assertion")
     )
 
     brain.tick()  # advance_intelligence creates the goal+bootstrap task
@@ -489,7 +531,7 @@ def test_decision_engine_reopens_only_on_material_evidence_change(tmp_path, monk
     monkeypatch.chdir(tmp_path)
     brain = _brain(tmp_path)
     brain.knowledge.save_finding(
-        Finding(source="research", category="ugc", description="signal 1", evidence="https://example.com/1")
+        Finding(source="research", category="ugc", description="signal 1", evidence="https://example.com/1", evidence_role="direct_assertion")
     )
 
     brain.tick()  # only 1 independent source: insufficient_evidence, recorded once
@@ -505,7 +547,7 @@ def test_decision_engine_reopens_only_on_material_evidence_change(tmp_path, monk
     # Real new evidence arrives — this is what "nothing is permanently
     # true, reopen on material evidence change" actually means in practice.
     brain.knowledge.save_finding(
-        Finding(source="research", category="ugc", description="signal 2", evidence="https://example.com/2")
+        Finding(source="research", category="ugc", description="signal 2", evidence="https://example.com/2", evidence_role="direct_assertion")
     )
     brain.tick()  # now 2 independent sources: verdict changes to propose_capability (no ugc channel exists)
 
@@ -563,7 +605,7 @@ def test_tick_bridges_a_decision_engine_goal_with_a_real_selected_product_into_a
     from atlas.influencer.production import add_template
     from atlas.influencer.registry import add_platform_target, attach_asset
     for kind in ("title", "description", "hook", "cta", "caption_template"):
-        add_template(influencer.id, kind, f"{kind}-1", f"real {kind} about {{product_name}}", brain.influencers)
+        add_template(influencer.id, kind, f"{kind}-1", f"real {kind} about {{product_name}} -- AI-curated content. (affiliate link)", brain.influencers)
     attach_asset(influencer.id, "image", "https://example.com/real-asset.jpg", brain.influencers)
     add_platform_target(influencer.id, "YouTube", "@handle", brain.influencers)
 
@@ -605,7 +647,7 @@ def test_approved_campaign_review_task_dispatches_to_the_real_campaign_execution
     from atlas.influencer.production import add_template
     from atlas.influencer.registry import add_platform_target, attach_asset
     for kind in ("title", "description", "hook", "cta", "caption_template"):
-        add_template(influencer.id, kind, f"{kind}-1", f"real {kind} about {{product_name}}", brain.influencers)
+        add_template(influencer.id, kind, f"{kind}-1", f"real {kind} about {{product_name}} -- AI-curated content. (affiliate link)", brain.influencers)
     attach_asset(influencer.id, "image", "https://example.com/real-asset.jpg", brain.influencers)
     add_platform_target(influencer.id, "YouTube", "@handle", brain.influencers)
     brain.tick()
@@ -650,3 +692,153 @@ def test_tick_leaves_the_old_content_factory_chain_untouched_when_no_influencer_
     # falls through to the old pipeline exactly as it always has
     content_factory_tasks = [t for t in brain.memory.tasks() if t.category == "content_factory"]
     assert len(content_factory_tasks) == 1
+
+
+# --- Connectivity Bridge Integration (docs/DESIGN_BRIDGE_INTEGRATION.md,
+# 2026-08-11) -- the real wiring of Bridges 1-3 into tick(). Every other
+# test above already exercises tick() with real Findings that have no
+# `subject` set, and continues to pass unchanged -- proof this integration
+# is additive, not a behavior change to anything pre-existing.
+
+
+def test_tick_wires_bridge_1_creates_a_real_opportunity_from_sourced_findings(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    brain = _brain(tmp_path)
+    brain.knowledge.save_finding(
+        Finding(
+            source="research", category="digital_product", subject="AI Course Bundle",
+            description="signal 1", evidence="https://example.com/1", evidence_role="direct_assertion",
+        )
+    )
+    brain.knowledge.save_finding(
+        Finding(
+            source="research", category="digital_product", subject="AI Course Bundle",
+            description="signal 2", evidence="https://example.com/2", evidence_role="direct_assertion",
+        )
+    )
+
+    brain.tick()
+
+    opportunities = brain.opportunities.by_category("digital_product")
+    assert len(opportunities) == 1
+    assert opportunities[0].subject == "AI Course Bundle"
+    assert opportunities[0].stage == "discovered"
+    assert len(opportunities[0].evidence_finding_ids) == 2
+
+
+def test_tick_wires_bridges_2_and_3_boosts_the_reasoning_preferred_categorys_real_task(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    brain = _brain(tmp_path)
+    # digital_product: 3 independent real sources -- the stronger real
+    # evidence, so Bridge 2 must prefer this Opportunity over ugc's below.
+    for i in range(3):
+        brain.knowledge.save_finding(
+            Finding(
+                source="research", category="digital_product", subject="AI Course Bundle",
+                description=f"signal {i}", evidence=f"https://example.com/dp{i}", evidence_role="direct_assertion",
+            )
+        )
+    # ugc: only 2 independent real sources -- still clears
+    # MIN_INDEPENDENT_SOURCES (so it still gets a real Decision/Task), but
+    # weaker real evidence than digital_product's, deterministically.
+    for i in range(2):
+        brain.knowledge.save_finding(
+            Finding(
+                source="research", category="ugc", subject="Daily Vlog Series",
+                description=f"signal {i}", evidence=f"https://example.com/ugc{i}", evidence_role="direct_assertion",
+            )
+        )
+
+    brain.tick()
+
+    dp_decision = next(d for d in brain.decisions.decisions() if d.category == "digital_product")
+    ugc_decision = next(d for d in brain.decisions.decisions() if d.category == "ugc")
+    assert dp_decision.verdict == "invest"  # real channel exists
+    assert ugc_decision.verdict == "propose_capability"  # no real channel exists -- unchanged by Bridge 3
+
+    dp_goal = brain.memory.get_goal(dp_decision.goal_id)
+    ugc_goal = brain.memory.get_goal(ugc_decision.goal_id)
+    dp_task = next(t for t in brain.memory.tasks() if t.goal_id == dp_goal.id)
+    ugc_task = next(t for t in brain.memory.tasks() if t.goal_id == ugc_goal.id)
+
+    # Bridge 2 (stronger real evidence: 3 sources vs. 2) preferred
+    # digital_product -- Bridge 3 made that observable as a real priority
+    # boost on its real Task, and left ugc's real Task untouched.
+    from atlas.brain.decision_priority_advance import REASONING_PRIORITY_BOOST
+    assert dp_task.priority_score == REASONING_PRIORITY_BOOST
+    assert ugc_task.priority_score == 0.0
+
+    # "Bridge may influence, but never decide" -- the real verdicts
+    # themselves are exactly what decide() alone would have produced,
+    # completely unaffected by which Opportunity Reasoning preferred.
+    assert dp_decision.verdict == "invest"
+    assert ugc_decision.verdict == "propose_capability"
+
+
+def test_milestone3_committed_opportunity_reaches_real_campaign_via_business_plan_bridge(tmp_path, monkeypatch):
+    # End-to-end proof of Milestone 4 (Business Plan Generator) wired into
+    # the real tick() loop -- and, critically, the real fix for the
+    # ALWAYS_REQUIRES_APPROVAL gap found during this Milestone's own
+    # Implementation: approve() must actually reach task.status=="done" via
+    # a real linked Proposal, not the risky Registry-matching fallback.
+    from atlas.brain.business_plan_advance import COMMERCIAL_TERMS_TASK_CATEGORY, create_affiliate_opportunity_from_terms
+
+    monkeypatch.chdir(tmp_path)
+    # This dev machine's persistent environment has
+    # ATLAS_OPPORTUNITY_DISCOVERY_V1=1 set. opportunity_discovery_advance.py
+    # is no longer called from tick() at all (2026-08-13, Design §7 --
+    # "one road, not an interchange"), so it can no longer race this bridge
+    # regardless of the flag. The flag still has one real, independent
+    # effect inside this same tick() call -- decision_apply.py's
+    # OPPORTUNITY_DISCOVERY_BOOTSTRAP_OVERRIDES, which decides whether the
+    # old category-level "invest" path bootstraps into affiliate_pipeline
+    # or affiliate_intelligence -- so the flag is still controlled
+    # explicitly here for determinism, not because of any remaining race.
+    monkeypatch.delenv("ATLAS_OPPORTUNITY_DISCOVERY_V1", raising=False)
+    brain = _brain(tmp_path)
+    brain.influencers.save_influencer(DigitalInfluencer(identity=IdentityProfile(name="Mira", market="US"), categories=["affiliate"]))
+
+    # Two real, independent findings -- crosses MIN_INDEPENDENT_SOURCES in
+    # the very first tick, so Bridge 1 creates the Universal Core
+    # Opportunity and Milestone 3 commits it in that same tick.
+    brain.knowledge.save_finding(Finding(source="research", category="affiliate", subject="KetoDNA", description="e1", evidence="https://e1", evidence_role="direct_assertion"))
+    brain.knowledge.save_finding(Finding(source="research", category="affiliate", subject="KetoDNA", description="e2", evidence="https://e2", evidence_role="direct_assertion"))
+
+    brain.tick()  # Bridge 1 creates the Opportunity; Milestone 3 commits it; Milestone 4 creates the commercial-terms Task
+
+    committed = [o for o in brain.opportunities.opportunities() if o.subject == "KetoDNA"]
+    assert len(committed) == 1
+    assert committed[0].goal_id is not None
+
+    terms_tasks = [t for t in brain.memory.tasks() if t.category == COMMERCIAL_TERMS_TASK_CATEGORY]
+    assert len(terms_tasks) == 1
+    terms_task = terms_tasks[0]
+    assert terms_task.source_opportunity_id == committed[0].id
+    assert terms_task.status == "proposed"  # not yet risk-gated this tick
+
+    brain.tick()  # risk-gates the new task -- real linked Proposal created, task -> pending_approval
+
+    terms_task = brain.memory.get_task(terms_task.id)
+    assert terms_task.status == "pending_approval"
+    linked_proposals = [p for p in brain.memory.proposals() if p.task_id == terms_task.id]
+    assert len(linked_proposals) == 1
+    assert linked_proposals[0].status == "pending_approval"
+
+    brain.approve(terms_task.id)  # closes the real linked Proposal
+
+    terms_task = brain.memory.get_task(terms_task.id)
+    assert terms_task.status == "done"
+
+    opportunity = create_affiliate_opportunity_from_terms(
+        terms_task.id, brain.memory, brain.opportunities, brain.affiliate_store,
+        commission_per_conversion=25.0, real_affiliate_link="https://www.digistore24.com/redir/123456/myaffid/",
+        provider="digistore24",
+    )
+    assert opportunity.stage == "selected_for_marketing"
+
+    brain.tick()  # campaign_advance.py (unmodified) picks up selected_for_marketing -> real Campaign
+
+    real_campaigns = [c for c in brain.campaigns.campaigns() if c.goal_id == committed[0].goal_id]
+    assert len(real_campaigns) == 1
+    assert real_campaigns[0].product_offer == "KetoDNA"
+    assert real_campaigns[0].status == "active"

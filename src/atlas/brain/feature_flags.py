@@ -22,3 +22,25 @@ def opportunity_discovery_v1_enabled() -> bool:
     since both need to read it.
     """
     return bool(os.environ.get("ATLAS_OPPORTUNITY_DISCOVERY_V1"))
+
+
+def executive_discovery_enabled() -> bool:
+    """Whether Executive Discovery (Milestone 1, docs/
+    EXECUTIVE_DISCOVERY_DESIGN_REVIEW.md) is live -- off by default, the
+    identical env-var-gated-inertness pattern opportunity_discovery_v1_
+    enabled() already established, for the identical reason: a real,
+    evidence-based finding, not a guess -- running the full test suite
+    against the unconditionally-wrapped decide() broke a large number of
+    existing, locked, single-category tests (every one of them
+    legitimately tests one category in isolation, which Exploration
+    Before Commitment's breadth gate correctly refuses to commit to
+    until real evidence exists across several categories), and let the
+    new ResearchDiscoveryAgent's real browser/network calls run
+    unmocked inside the general suite, extending it from its normal
+    runtime to 43 minutes. With ATLAS_EXECUTIVE_DISCOVERY_ENABLED unset,
+    atlas.brain.discovery.decide.decide_with_discovery() defers straight
+    to the real, unmodified decision_engine.decide() and advance_
+    executive_discovery() is a no-op -- today's production tick behaves
+    exactly as it does now; this module's code existing in the working
+    tree changes nothing on its own."""
+    return bool(os.environ.get("ATLAS_EXECUTIVE_DISCOVERY_ENABLED"))

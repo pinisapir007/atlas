@@ -1,4 +1,5 @@
-﻿from dataclasses import asdict
+﻿import os
+from dataclasses import asdict
 from pathlib import Path
 
 from atlas.assets.affiliate_department.models import AffiliateOpportunity, validate_provider_link
@@ -10,6 +11,15 @@ from atlas.assets.affiliate_intelligence.agents import DiscoveryAgent, ResearchA
 # same persistence shape, own data file, since Affiliate Intelligence and
 # the Affiliate Department are separate departments with separate pipelines.
 DEFAULT_STORE_PATH = Path(".atlas/affiliate_intelligence.json")
+
+
+def _opportunity_discovery_v1_enabled() -> bool:
+    """Mirrors atlas.brain.feature_flags.opportunity_discovery_v1_enabled()
+    exactly (same env var, same live-check semantics) — duplicated rather
+    than imported, since this asset is documented as self-contained with
+    respect to atlas.brain (see the class docstring below). Two lines of
+    real duplication is cheaper than crossing that boundary."""
+    return bool(os.environ.get("ATLAS_OPPORTUNITY_DISCOVERY_V1"))
 
 
 class AffiliateIntelligenceAgent:
@@ -56,7 +66,13 @@ class AffiliateIntelligenceAgent:
 
         opportunities = self._store.opportunities()
         if not opportunities:
-            self._run_discovery(task)
+            if not _opportunity_discovery_v1_enabled():
+                self._run_discovery(task)
+            # else: real, evidence-driven discovery is live (see
+            # atlas.brain.opportunity_discovery_advance) -- never fabricate
+            # placeholder candidates here. _summarize() reports "No real
+            # opportunity found." explicitly instead of silently doing
+            # nothing.
         elif any(o.stage == "discovered" for o in opportunities):
             self._run_research()
         elif any(o.stage == "researched" for o in opportunities):
@@ -158,7 +174,7 @@ class AffiliateIntelligenceAgent:
             key=lambda o: o.score,
             reverse=True,
         )
-        return {
+        result = {
             "opportunities": [asdict(o) for o in opportunities],
             "by_stage": by_stage,
             "ranked_report": [
@@ -166,3 +182,6 @@ class AffiliateIntelligenceAgent:
                 for i, o in enumerate(ranked, start=1)
             ],
         }
+        if not opportunities and _opportunity_discovery_v1_enabled():
+            result["message"] = "No real opportunity found."
+        return result

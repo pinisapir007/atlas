@@ -30,7 +30,7 @@ def explain_opportunity(
     Reuses confidence_score() entirely rather than recomputing anything.
     """
     result = confidence_score(category, knowledge, memory, kpis)
-    findings = [f for f in knowledge.findings() if f.category == category]
+    findings = knowledge.findings(category=category)
 
     evidence = [
         {"finding_id": f.id, "source": f.source, "description": f.description, "evidence": f.evidence}

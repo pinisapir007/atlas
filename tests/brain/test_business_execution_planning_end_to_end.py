@@ -39,8 +39,8 @@ def test_full_real_pipeline_scan_to_evidence_to_executable_plan(tmp_path):
     # Opportunity Discovery / Decision Engine: real, sourced evidence
     # for a real subject, enough to clear MIN_INDEPENDENT_SOURCES.
     knowledge = KnowledgeBase(tmp_path / "knowledge.json")
-    knowledge.save_finding(Finding(source="research", category="digital_product", description="signal 1", evidence="https://example.com/1", subject="Widget"))
-    knowledge.save_finding(Finding(source="research", category="digital_product", description="signal 2", evidence="https://example.com/2", subject="Widget"))
+    knowledge.save_finding(Finding(source="research", category="digital_product", description="signal 1", evidence="https://example.com/1", subject="Widget", evidence_role="direct_assertion"))
+    knowledge.save_finding(Finding(source="research", category="digital_product", description="signal 2", evidence="https://example.com/2", subject="Widget", evidence_role="direct_assertion"))
     memory = BrainMemory(tmp_path / "brain.json")
     kpis = KPIRegistry(memory)
 

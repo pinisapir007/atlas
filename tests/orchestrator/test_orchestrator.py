@@ -56,7 +56,14 @@ class _World:
         one declared platform target — everything _produce_content()
         requires for "done" beyond the campaign's own fields."""
         for kind in kinds:
-            add_template(influencer_id, kind, f"{kind}-1", f"real {kind} about {{product_name}}", self.influencers)
+            # Includes real AI-disclosure and affiliate-disclosure phrasing so
+            # these fixtures clear the mandatory Compliance & Trust Review
+            # gate (compliance_review.py) the same way real content must.
+            add_template(
+                influencer_id, kind, f"{kind}-1",
+                f"real {kind} about {{product_name}} -- AI-curated content. (affiliate link)",
+                self.influencers,
+            )
         attach_asset(influencer_id, "image", "https://example.com/real-asset.jpg", self.influencers)
         add_platform_target(influencer_id, "YouTube", "@handle", self.influencers)
 

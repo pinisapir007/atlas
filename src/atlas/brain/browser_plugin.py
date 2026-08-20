@@ -37,4 +37,15 @@ class BrowserPlugin:
     def observe(self, source_ref: str, extract: dict[str, str] | None = None) -> PageObservation:
         if not self._allowlist.is_approved(source_ref):
             raise DomainNotApprovedError(f"domain not approved for autonomous browsing: {source_ref!r}")
-        return self._observer.observe(source_ref, extract=extract)
+        # verify_target (2026-08-13, M1 Marketplace Discovery Safety
+        # Wiring): passed through so a real BrowserObserver implementation
+        # that honors it (e.g. BrowserUseObserver) catches a redirect
+        # *before* page text/screenshot are ever read. The post-observe
+        # re-check below stays as defense-in-depth for any implementation
+        # that doesn't honor verify_target (the parameter is optional).
+        observation = self._observer.observe(source_ref, extract=extract, verify_target=self._allowlist.is_approved)
+        if not self._allowlist.is_approved(observation.url):
+            raise DomainNotApprovedError(
+                f"real destination after navigation/redirect is not approved: {observation.url!r} (requested {source_ref!r})"
+            )
+        return observation

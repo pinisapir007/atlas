@@ -2,10 +2,13 @@ from atlas.app import _normalize, run_app
 from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.decisions import DecisionLog
+from atlas.brain.investigations import InvestigationStore
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.ledger import Ledger
+from atlas.brain.marketplace_catalog import MarketplaceCatalogStore
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Task
+from atlas.brain.opportunities import OpportunityStore
 from atlas.campaign.registry import CampaignRegistry
 from atlas.core.registry import Registry
 from atlas.core.store import JSONStore
@@ -24,6 +27,9 @@ def _brain(tmp_path):
         influencers=InfluencerRegistry(tmp_path / ".atlas" / "influencers.json"),
         execution_plans=ExecutionPlanRegistry(tmp_path / ".atlas" / "execution_plans.json"),
         affiliate_store=AffiliateStore(tmp_path / ".atlas" / "affiliate_intelligence.json"),
+        opportunities=OpportunityStore(tmp_path / ".atlas" / "opportunities.json"),
+        marketplace_catalog=MarketplaceCatalogStore(tmp_path / ".atlas" / "marketplace_catalog.json"),
+        investigations=InvestigationStore(tmp_path / ".atlas" / "investigations.json"),
     )
 
 
@@ -77,7 +83,11 @@ def test_run_app_natural_language_approval_review(tmp_path):
     )
 
     reloaded = brain.memory.get_task(task.id)
-    assert reloaded.status in ("delegated", "done")  # the real approve() logic actually ran
+    # 2026-08-15, Delegator Fail-Closed Fix: "reallocate_budget" matches no
+    # asset with a real entrypoint (`cfo` is registered metadata-only) --
+    # the real approve() logic still ran (that's what this test proves),
+    # it now honestly reports blocked instead of an unrelated fallback.
+    assert reloaded.status == "blocked"
     output = "\n".join(lines)
     assert task.id in output
 

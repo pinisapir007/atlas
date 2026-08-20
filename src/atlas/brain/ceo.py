@@ -1,33 +1,46 @@
 from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.assets.affiliate_intelligence.agent import DEFAULT_STORE_PATH as AFFILIATE_INTELLIGENCE_STORE_PATH
+from atlas.assets.research_discovery.agent import ResearchDiscoveryAgent
 from atlas.brain.affiliate_intelligence_advance import advance_affiliate_intelligence
 from atlas.brain.affiliate_pipeline_advance import advance_affiliate_pipeline
+from atlas.brain.business_plan_advance import advance_business_plan_generation
 from atlas.brain.campaign_advance import advance_decision_driven_campaigns
 from atlas.brain.content_factory_advance import advance_content_factory
 from atlas.brain.conversation_memory import ConversationMemory
 from atlas.brain.creative_agent_advance import advance_creative_agent
 from atlas.brain.decision_apply import apply_decision
-from atlas.brain.decision_engine import decide_all, has_materially_changed
+from atlas.brain.decision_engine import has_materially_changed
 from atlas.brain.decisions import DecisionLog
+from atlas.brain.deep_research_advance import advance_deep_research
+from atlas.brain.discovery.decide import advance_executive_discovery, decide_all_with_discovery
 from atlas.brain.delegator import Delegator, is_structural
 from atlas.brain.editorial_review_advance import advance_editorial_review
 from atlas.brain.publishing_gateway_advance import advance_publishing_gateway
 from atlas.brain.improvement import propose_improvements
 from atlas.brain.intake import absorb_opportunities
 from atlas.brain.intelligence_cycle_advance import advance_intelligence_cycle
+from atlas.brain.investigation_advance import advance_investigations
+from atlas.brain.investigations import InvestigationStore
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.kpi_intake import record_revenue
 from atlas.brain.ledger import Ledger
+from atlas.brain.marketplace_catalog import MarketplaceCatalogStore
+from atlas.brain.marketplace_investigation_advance import advance_marketplace_investigations
 from atlas.brain.memory import BrainMemory
-from atlas.brain.models import Goal, Task, now
+from atlas.brain.models import Decision, Goal, Task, now
 from atlas.brain.monitor import Monitor
-from atlas.brain.opportunity_discovery_advance import advance_opportunity_discovery
+from atlas.brain.decision_priority_advance import apply_reasoning_priority
+from atlas.brain.opportunities import OpportunityStore
+from atlas.brain.opportunity_advance import advance_opportunities_from_findings
 from atlas.brain.pipeline_advance import advance_recruitment_pipeline
 from atlas.brain.planner import Planner, SimplePlanner
 from atlas.brain.prioritizer import Prioritizer, SimplePrioritizer
+from atlas.brain.reasoning_advance import advance_opportunity_comparisons
 from atlas.brain.reporter import Reporter
+from atlas.brain.revenue_strategy import commit_ready_opportunities
 from atlas.brain.risk import RiskPolicy
+from atlas.brain.tick_lock import TickAlreadyRunning, tick_lock
 from atlas.brain.strategist import SimpleStrategist, Strategist
 from atlas.brand.registry import BrandRegistry
 from atlas.campaign.registry import CampaignRegistry
@@ -67,15 +80,33 @@ class CEOBrain:
         execution_plans: ExecutionPlanRegistry | None = None,
         affiliate_store: AffiliateStore | None = None,
         conversations: ConversationMemory | None = None,
+        opportunities: OpportunityStore | None = None,
+        marketplace_catalog: MarketplaceCatalogStore | None = None,
+        investigations: InvestigationStore | None = None,
     ):
         self.memory = memory if memory is not None else BrainMemory()
-        self.registry = registry if registry is not None else Registry()
+        # knowledge must exist before the default Registry is built, below --
+        # it's the real fix for Qualification Run #1's root cause
+        # (docs/QUALIFICATION_RUN_2026-08-11.md, gap #7): Registry._instance()
+        # has no way to pass real constructor arguments to a lazily-imported
+        # asset, so research_discovery previously always fell back to its own
+        # default (real, relative ".atlas/knowledge.json") KnowledgeBase --
+        # never the one this CEOBrain actually reads from. Pre-seeding it here
+        # via Registry(instances=...) is the minimal fix: only reached when
+        # `registry` itself isn't explicitly provided (an explicitly-passed
+        # Registry is never silently mutated -- the caller configured it on
+        # purpose, e.g. every existing test in test_ceo.py).
+        self.knowledge = knowledge if knowledge is not None else KnowledgeBase()
+        self.registry = (
+            registry
+            if registry is not None
+            else Registry(instances={"research_discovery": ResearchDiscoveryAgent(knowledge=self.knowledge)})
+        )
         self.planner = planner if planner is not None else SimplePlanner()
         self.prioritizer = prioritizer if prioritizer is not None else SimplePrioritizer()
         self.risk_policy = risk_policy if risk_policy is not None else RiskPolicy()
         self.reporter = reporter if reporter is not None else Reporter()
         self.strategist = strategist if strategist is not None else SimpleStrategist()
-        self.knowledge = knowledge if knowledge is not None else KnowledgeBase()
         self.decisions = decisions if decisions is not None else DecisionLog()
         self.ledger = ledger if ledger is not None else Ledger()
         # ".atlas/affiliate_intelligence.json" — the shared store file
@@ -91,6 +122,16 @@ class CEOBrain:
         self.brands = brands if brands is not None else BrandRegistry()
         self.execution_plans = execution_plans if execution_plans is not None else ExecutionPlanRegistry()
         self.conversations = conversations if conversations is not None else ConversationMemory()
+        # docs/DESIGN_BRIDGE_INTEGRATION.md — the same optional-with-default
+        # pattern as knowledge/decisions/ledger, used here for the first time
+        # by Bridges 1-3 wired into tick() below.
+        self.opportunities = opportunities if opportunities is not None else OpportunityStore()
+        # ONE BRAIN Production Wiring (2026-08-17): both default to their
+        # own real, empty stores when unset -- a brain with no Marketplace
+        # activity yet reads an empty catalog/investigations file and the
+        # bridges below simply do nothing, unchanged from today's behavior.
+        self.marketplace_catalog = marketplace_catalog if marketplace_catalog is not None else MarketplaceCatalogStore()
+        self.investigations = investigations if investigations is not None else InvestigationStore()
         self.kpis = KPIRegistry(self.memory)
         self.delegator = Delegator(self.memory)
         self.monitor = Monitor()
@@ -115,6 +156,26 @@ class CEOBrain:
         return goal
 
     def tick(self) -> list[Task]:
+        """Real entry point every real caller (Scheduler, CLI, a future
+        API, a manual call) goes through -- the application-level Tick
+        Lock (P0 Stage 2A, tick_lock.py) lives exactly here, not in any
+        one caller, so it protects all of them uniformly and can never
+        be forgotten at a new call site. A real, live tick already in
+        progress is never a crash: it's logged durably
+        (BrainMemory.append_log, the same append-only outcome log
+        recent_activity()/review() already read) and this call returns
+        an honest empty result, the same "documented, honest no-op"
+        shape every other real skip condition in this codebase already
+        uses."""
+        lock_path = self.memory.path.parent / "tick.lock"
+        try:
+            with tick_lock(lock_path):
+                return self._tick_impl()
+        except TickAlreadyRunning as exc:
+            self.memory.append_log({"at": now(), "event": "tick_skipped_lock_contention", "reason": str(exc)})
+            return []
+
+    def _tick_impl(self) -> list[Task]:
         goals = self.memory.goals()
         tasks = self.memory.tasks()
 
@@ -137,7 +198,75 @@ class CEOBrain:
         for opportunity_task in absorb_opportunities(self.memory.tasks(), self.registry, self.memory, self.knowledge):
             self.memory.save_task(opportunity_task)
 
-        self._decide_and_apply()
+        # Executive Discovery's Research Trigger (Mechanism 2, docs/
+        # EXECUTIVE_DISCOVERY_DESIGN_REVIEW.md) -- runs before
+        # _decide_and_apply() so a category the breadth gate flags this
+        # same tick can start accumulating real evidence as soon as
+        # possible, not one tick late. Purely additive: dispatches real,
+        # auto-delegating research Tasks, never touches Goal/Decision
+        # state itself.
+        advance_executive_discovery(self.knowledge, self.memory, self.kpis)
+
+        # Shallow -> Deep Research Escalation (P0 Independence Mission,
+        # 2026-08-18) -- runs immediately after the shallow trigger above
+        # so a category that just became research_exhausted() this same
+        # tick is escalated without waiting a tick, the same
+        # same-tick-visibility discipline advance_decision_driven_campaigns()
+        # -> advance_content_factory() already established. Inherits
+        # Executive Discovery's own ATLAS_EXECUTIVE_DISCOVERY_ENABLED gate
+        # (a no-op in real production until that's explicitly turned on).
+        advance_deep_research(self.memory, self.knowledge, self.kpis)
+
+        # ONE BRAIN Production Wiring (2026-08-17): Marketplace -> Investigation
+        # -> Bridge 1, closing the confirmed-disconnected arrow from the
+        # production-wiring audit. Both bridges only ever read already-
+        # persisted, local-disk state (MarketplaceCatalogStore/
+        # InvestigationStore) -- zero browser/network/CDP calls, safe to run
+        # unconditionally every tick, exactly like every other *_advance.py
+        # bridge below. `source_refs={}` (no autonomous URL-selection
+        # mechanism exists yet, by design -- see investigation_advance.py's
+        # own docstring): every real Investigation this creates honestly
+        # stays "waiting_for_evidence" until a real, approved source_ref is
+        # supplied through a future, separate mechanism -- never invented,
+        # never a false advancement, never an exception that could fail
+        # this tick.
+        advance_marketplace_investigations(self.marketplace_catalog, self.knowledge, self.investigations)
+        advance_investigations(self.investigations, self.knowledge, source_refs={})
+
+        # Connectivity Bridges 1-3 (docs/DESIGN_BRIDGE_INTEGRATION.md,
+        # 2026-08-11) -- integration only, zero new judgment anywhere in
+        # this block ("Integration never owns behavior"). Order is forced,
+        # not chosen: Bridge 1 needs this tick's real Findings (already
+        # accumulated above); Bridge 2 needs Bridge 1's updated
+        # OpportunityStore; Bridge 3 needs both Bridge 2's real comparisons
+        # and _decide_and_apply()'s real (Decision, Task) pairs. Every
+        # bridge stays independently callable/testable -- this is only a
+        # call sequence, never a merge into one mechanism.
+        advance_opportunities_from_findings(self.knowledge, self.opportunities)
+        comparisons = advance_opportunity_comparisons(self.opportunities)
+
+        decisions_and_tasks = self._decide_and_apply()
+
+        opportunities_by_id = {o.id: o for o in self.opportunities.opportunities()}
+        for boosted_task in apply_reasoning_priority(decisions_and_tasks, comparisons, opportunities_by_id):
+            # apply_reasoning_priority() mutates the real Task object it was
+            # given in place -- _decide_and_apply() already persisted that
+            # same Task once, above, before its priority_score was boosted,
+            # and self.memory round-trips through real JSON storage (no
+            # shared object identity across separate reads), so the boost
+            # is only real/observable once re-saved here.
+            self.memory.save_task(boosted_task)
+
+        # Milestone 3 (Revenue Strategy) -- runs after _decide_and_apply()
+        # above so a category-level Goal apply_decision() creates this same
+        # tick is already visible to commit_ready_opportunities()'s own
+        # goals_touching_category() join-before-create check, not one tick
+        # late. Scoped to "affiliate" -- the one category Milestone 4's own
+        # bridge below can actually reach a real Campaign for; not a
+        # decision about any other category. commit_ready_opportunities()
+        # is fully self-contained (saves its own Goals/Tasks/Opportunities),
+        # so nothing further is done with its return value here.
+        commit_ready_opportunities("affiliate", self.opportunities, self.knowledge, self.memory)
 
         # Runs the real, unmodified 8-stage intelligence workflow for every
         # Goal the Decision Engine step just above created (or created on an
@@ -153,14 +282,30 @@ class CEOBrain:
         for affiliate_task in advance_affiliate_pipeline(self.memory.tasks(), self.registry, self.memory, self.kpis):
             self.memory.save_task(affiliate_task)
 
-        # Off by default (see feature_flags.opportunity_discovery_v1_enabled)
-        # -- seeds real, evidence-ranked AffiliateOpportunity records so the
-        # very next call below can request founder choice on them in the
-        # same tick, exactly like a founder-manual intake would.
-        advance_opportunity_discovery(self.memory, self.knowledge, self.affiliate_store)
-
+        # advance_opportunity_discovery() (opportunity_discovery_advance.py)
+        # deliberately no longer called here (2026-08-13, Milestone 4
+        # Qualification -- docs/DESIGN_BUSINESS_PLAN_GENERATOR.md §7): a full
+        # functional comparison found no real business capability unique to
+        # it that Milestone 3 + this bridge don't already cover, and it had
+        # its own structural defect (could reach selected_for_marketing with
+        # permanently-empty commercial terms). "One road, not an
+        # interchange" -- the function itself, opportunity_ranking.
+        # rank_opportunities() (6 other real callers), and
+        # feature_flags.opportunity_discovery_v1_enabled() (2 other
+        # independent uses) are all deliberately untouched.
         for intelligence_task in advance_affiliate_intelligence(self.memory.tasks(), self.registry, self.memory, self.kpis):
             self.memory.save_task(intelligence_task)
+
+        # Milestone 4 (Business Plan Generator) -- bridges a Milestone-3-
+        # committed Universal Core Opportunity to a real AffiliateOpportunity
+        # request, the same real "selected_for_marketing" entry point
+        # advance_decision_driven_campaigns() below already reads. Runs
+        # after commit_ready_opportunities() above (so a Goal committed this
+        # same tick is already visible) and before the campaign bridge below
+        # (so a same-tick approval could -- once the founder later supplies
+        # terms -- be picked up as soon as possible).
+        for terms_task in advance_business_plan_generation(self.memory, self.opportunities, self.affiliate_store):
+            self.memory.save_task(terms_task)
 
         advance_decision_driven_campaigns(
             self.memory, self.knowledge, self.kpis, self.influencers, self.campaigns, self.execution_plans,
@@ -189,7 +334,7 @@ class CEOBrain:
 
         return self.memory.tasks()
 
-    def _decide_and_apply(self) -> None:
+    def _decide_and_apply(self) -> list[tuple[Decision, Task | None]]:
         # The Decision Engine's only caller: decide_all() computes a fresh
         # verdict per evidenced category every tick — no caching, so this
         # is the entire mechanism behind "nothing is permanently true"
@@ -200,7 +345,24 @@ class CEOBrain:
         # reallocation, so recency_score's continuous decay between ticks
         # doesn't spam a new Decision every 30 minutes with nothing behind
         # it.
-        for decision in decide_all(self.knowledge, self.memory, self.kpis):
+        # decide_all_with_discovery(), not decision_engine.decide_all()
+        # directly -- Executive Discovery's Exploration Before Commitment
+        # gate (Mechanism 1) wraps decide() without editing
+        # decision_engine.py/decision_apply.py at all (see docs/
+        # EXECUTIVE_DISCOVERY_PLACEMENT_DECISION.md); this one-line
+        # substitution is the single necessary exception to that
+        # document's "zero changes to ceo.py" framing -- named there
+        # explicitly, not silently glossed over.
+        #
+        # docs/DESIGN_BRIDGE_INTEGRATION.md: the one real, disclosed change
+        # this integration required in existing code. Previously this loop
+        # discarded every (Decision, Task) pair it built and returned None;
+        # Bridge 3 needs those real pairs, so they're now collected and
+        # returned instead. This touches ceo.py's own orchestration shape
+        # only -- decide_all_with_discovery()/apply_decision() themselves,
+        # and everything they compute, are completely unchanged.
+        decisions_and_tasks: list[tuple[Decision, Task | None]] = []
+        for decision in decide_all_with_discovery(self.knowledge, self.memory, self.kpis):
             previous = self.decisions.latest_for_category(decision.category)
             if previous is not None:
                 if not has_materially_changed(previous, decision):
@@ -214,6 +376,9 @@ class CEOBrain:
                 self.memory.save_task(task)
 
             self.decisions.save_decision(decision)
+            decisions_and_tasks.append((decision, task))
+
+        return decisions_and_tasks
 
     def _risk_gate_and_delegate(self, task: Task) -> None:
         decision = self.risk_policy.evaluate(task)
@@ -296,7 +461,13 @@ class CEOBrain:
             proposal.status = "applied"
             proposal.resolved_at = now()
             self.memory.save_proposal(proposal)
-            task.transition("done", f"proposal {proposal.id} approved and applied")
+            # try_complete(), not transition("done", ...) directly (2026-08-17,
+            # ONE BRAIN Root Implementation) -- the same guard Monitor
+            # respects applies here too, uniformly, so a founder-approved
+            # Task that declares expected_outcome still cannot bypass
+            # independent verification. Every Task without expected_outcome
+            # (today's exact case, always) is completely unaffected.
+            task.try_complete(f"proposal {proposal.id} approved and applied")
         else:
             task.transition("ready", "approved by owner")
             result = self.delegator.delegate(task, self.registry)

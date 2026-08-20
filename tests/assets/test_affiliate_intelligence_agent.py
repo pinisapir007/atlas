@@ -159,3 +159,62 @@ def test_report_does_not_mutate_state(tmp_path):
     after = agent.report()
 
     assert before == after
+
+
+def test_flag_off_first_run_still_discovers_placeholders_unchanged(tmp_path, monkeypatch):
+    monkeypatch.delenv("ATLAS_OPPORTUNITY_DISCOVERY_V1", raising=False)
+    agent = _agent(tmp_path)
+
+    result = agent.run()
+
+    assert result["by_stage"]["discovered"] == 3
+    assert "message" not in result
+
+
+def test_flag_on_empty_store_never_fabricates_placeholders(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATLAS_OPPORTUNITY_DISCOVERY_V1", "1")
+    agent = _agent(tmp_path)
+
+    result = agent.run()
+
+    assert result["opportunities"] == []
+    assert sum(result["by_stage"].values()) == 0
+
+
+def test_flag_on_empty_store_reports_no_real_opportunity_found(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATLAS_OPPORTUNITY_DISCOVERY_V1", "1")
+    agent = _agent(tmp_path)
+
+    result = agent.run()
+
+    assert result["message"] == "No real opportunity found."
+    assert agent.report()["message"] == "No real opportunity found."
+
+
+def test_flag_on_with_a_real_opportunity_present_reports_no_message(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATLAS_OPPORTUNITY_DISCOVERY_V1", "1")
+    agent = _agent(tmp_path)
+    agent.intake_real_product(
+        goal_id="goal-a",
+        product_name="Real Program",
+        description="A real, signed-up affiliate program",
+        category="software",
+        commission_per_conversion=30.0,
+        real_affiliate_link="https://www.digistore24.com/redir/123456/myaffid/",
+        provider="digistore24",
+    )
+
+    result = agent.run()
+
+    assert "message" not in result
+
+
+def test_flag_on_never_advances_stuck_at_empty_across_repeated_ticks(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATLAS_OPPORTUNITY_DISCOVERY_V1", "1")
+    agent = _agent(tmp_path)
+
+    agent.run()
+    result = agent.run()
+
+    assert result["opportunities"] == []
+    assert result["message"] == "No real opportunity found."

@@ -28,3 +28,7 @@ class JSONFileStore:
 
     def write(self, data: dict) -> None:
         write_json_atomic(self._path, data)
+
+    @property
+    def path(self) -> Path:
+        return self._path

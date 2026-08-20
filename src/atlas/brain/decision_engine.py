@@ -1,4 +1,5 @@
 from atlas.brain.confidence import CATEGORY_TASK_CATEGORIES, confidence_score, goals_touching_category
+from atlas.brain.evidence_provenance import independent_source_count
 from atlas.brain.explain import explain_opportunity
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
@@ -52,7 +53,17 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
     honestly narrow rather than falsely sophisticated.
     """
     result = confidence_score(category, knowledge, memory, kpis)
-    sourced = [f for f in knowledge.findings() if f.category == category and f.evidence]
+    sourced = [f for f in knowledge.findings(category=category) if f.evidence]
+    # Independent-source counting (2026-08-17, ONE BRAIN Evidence
+    # Provenance): the real MIN_INDEPENDENT_SOURCES gate below now
+    # counts genuinely distinct real-world sources (evidence_provenance.
+    # independent_source_count()), not raw Finding count -- duplicate/
+    # syndicated/re-observed evidence from the same real claimant or
+    # origin can no longer inflate this. `sourced` itself (the full,
+    # real evidence list) is unchanged and still cited in full via
+    # `evidence_finding_ids` below -- a Decision's evidence trail always
+    # shows everything real it has, independence is a separate question.
+    independent_count = independent_source_count(sourced)
     channel = CATEGORY_TASK_CATEGORIES.get(category)
     # goals_touching_category() returns every goal regardless of status —
     # correct for confidence_score()'s historical_success/measured_outcomes
@@ -80,15 +91,15 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
         "already_pursuing": bool(existing_goals) or already_proposed,
         "existing_goal_ids": [g.id for g in existing_goals],
         "paused_goal_ids": [g.id for g in paused_goals],
-        "independent_sources": len(sourced),
+        "independent_sources": independent_count,
     }
     risks = explain_opportunity(category, knowledge, memory, kpis)["risks"]
     chosen_provider = None  # only ever set on an "invest" verdict, below
 
-    if len(sourced) < MIN_INDEPENDENT_SOURCES:
+    if independent_count < MIN_INDEPENDENT_SOURCES:
         verdict = "insufficient_evidence"
         reasoning = (
-            f"only {len(sourced)}/{MIN_INDEPENDENT_SOURCES} independently-sourced findings for '{category}' "
+            f"only {independent_count}/{MIN_INDEPENDENT_SOURCES} independently-sourced findings for '{category}' "
             "— standing policy requires multiple independent sources before any investment decision, "
             "regardless of confidence score"
         )
@@ -107,7 +118,7 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
     elif not channel:  # None (unknown category) or set() (known category, no real channel yet) both mean no capability
         verdict = "propose_capability"
         reasoning = (
-            f"'{category}' has {len(sourced)} independently-sourced findings but no dispatchable execution "
+            f"'{category}' has {independent_count} independently-sourced findings but no dispatchable execution "
             "channel exists — proposing capability, never auto-creating one (standing rule, unchanged)"
         )
     else:
@@ -140,7 +151,7 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
         )
 
         reasoning = (
-            f"'{category}' has {len(sourced)} independently-sourced findings, a real execution channel, "
+            f"'{category}' has {independent_count} independently-sourced findings, a real execution channel, "
             f"and no active commitment — {confidence_note}{history_note}{provider_note}"
         )
 

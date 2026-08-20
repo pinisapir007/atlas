@@ -21,8 +21,36 @@ Live-verified end-to-end against a real local HTTP-served form: real
 navigate, real text input, real file upload, real click (which produced
 a real, observable DOM change), and a real file download (captured via
 browser_use's own `session.downloaded_files`).
+
+Domain Policy, fail-closed (2026-08-19, P0 Stage 1B -- closes the real,
+verified gap: this module previously had zero domain check of any
+kind, unlike the two real-only paths, which both already gate through
+BrowserAllowlist). Deliberately reuses BrowserAllowlist exactly as it
+already exists for the narrow, founder-approved-domain case -- never a
+second, parallel allowlist. This is a real, distinct design decision
+from Research/Read (ResearchDiscoveryAgent/DeepResearchAgent, which
+stay intentionally unrestricted -- reading a public page carries far
+less real-world risk than clicking/typing/submitting/uploading on one,
+and the founder's own explicit instruction is that broad public
+research must not be narrowed by this fix). RiskPolicy (how much
+approval an action needs) and this Domain Policy (where it's even
+allowed to act) are two different, orthogonal gates -- both apply,
+neither replaces the other.
+
+Checked twice per real step that can move to a real URL: before a real
+`navigate` (the requested destination itself, so tools.navigate() is
+never even called against an unapproved URL), and after every real
+step regardless of kind (the real, current page URL, since a click can
+trigger a same-tab navigation or a page can redirect client-side —
+never assume only an explicit `navigate` step can change where the
+session actually is). A real failure loading/reading the allowlist
+(e.g. a corrupted .atlas/browser_allowlist.json) is caught and turned
+into a refusal, never silently treated as "nothing configured, so
+allow everything" -- fail-closed applies to a broken policy exactly
+the same as to a policy that says no.
 """
 
+from atlas.brain.browser_allowlist import BrowserAllowlist
 from atlas.hands.models import BROWSER_STEP_KINDS
 
 
@@ -34,6 +62,14 @@ class BrowserHandsError(Exception):
 
 class BrowserHands:
     name = "browser_hands"
+
+    def __init__(self, allowlist: BrowserAllowlist | None = None):
+        # Fail-closed default: a real BrowserAllowlist() -- never a
+        # bare None meaning "no check happens." A caller that genuinely
+        # wants a different real policy source injects one; nothing
+        # short of an explicit, real allowlist ever stands in for "no
+        # policy."
+        self._allowlist = allowlist if allowlist is not None else BrowserAllowlist()
 
     def execute_steps(self, steps: list[dict]) -> dict:
         """Executes a real sequence of browser steps atomically (one
@@ -52,6 +88,16 @@ class BrowserHands:
             raise
         except Exception as exc:  # noqa: BLE001
             raise BrowserHandsError(f"real browser session failure: {exc}") from exc
+
+    def _check_domain_policy(self, url: str) -> None:
+        try:
+            approved = self._allowlist.is_approved(url)
+        except Exception as exc:  # noqa: BLE001 -- a broken/unreadable policy must refuse, never silently pass
+            raise BrowserHandsError(
+                f"real domain policy failed to load — refusing to act (fail-closed): {exc}"
+            ) from exc
+        if not approved:
+            raise BrowserHandsError(f"domain not approved for a real write/action: {url!r}")
 
     async def _execute_steps_async(self, steps: list[dict]) -> dict:
         from browser_use import BrowserSession
@@ -72,7 +118,24 @@ class BrowserHands:
                 params = step.get("params", {})
                 if kind not in BROWSER_STEP_KINDS:
                     raise BrowserHandsError(f"unrecognized browser step kind: {kind!r}")
+
+                if kind == "navigate":
+                    # Checked against the real requested destination
+                    # BEFORE it's ever navigated to -- a rejected URL
+                    # is never even visited, not visited-then-flagged.
+                    self._check_domain_policy(params["url"])
+
                 results.append(await self._execute_one(tools, session, file_system, kind, params))
+
+                # Re-checked after EVERY real step, not only navigate:
+                # a click can trigger a same-tab navigation, and a page
+                # can redirect client-side after load -- the real,
+                # current URL is what matters, never the one originally
+                # requested.
+                real_url = await session.get_current_page_url()
+                if real_url:
+                    self._check_domain_policy(real_url)
+
             downloaded_files = list(session.downloaded_files)
         finally:
             await session.stop()

@@ -3,10 +3,13 @@ from starlette.testclient import TestClient
 from atlas.brain.ceo import CEOBrain
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.decisions import DecisionLog
+from atlas.brain.investigations import InvestigationStore
 from atlas.brain.ledger import Ledger
+from atlas.brain.marketplace_catalog import MarketplaceCatalogStore
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Goal, Task
 from atlas.brain.conversation_memory import ConversationMemory
+from atlas.brain.opportunities import OpportunityStore
 from atlas.campaign.registry import CampaignRegistry
 from atlas.influencer.registry import InfluencerRegistry
 from atlas.brand.registry import BrandRegistry
@@ -61,6 +64,9 @@ def _isolated_brain(tmp_path) -> CEOBrain:
         execution_plans=ExecutionPlanRegistry(store=_FakeStore()),
         affiliate_store=AffiliateStore(tmp_path / "affiliate_intelligence.json"),
         conversations=ConversationMemory(store=_FakeStore()),
+        opportunities=OpportunityStore(store=_FakeStore()),
+        marketplace_catalog=MarketplaceCatalogStore(store=_FakeStore()),
+        investigations=InvestigationStore(store=_FakeStore()),
     )
 
 

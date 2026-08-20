@@ -1,0 +1,10 @@
+id = "research_discovery"
+name = "Research Discovery"
+kind = "operational_agent"
+description = "The real Agent that fulfills Executive Discovery's Research Trigger -- takes a real business-model category, performs a real web search via BrowserObserver, and records real, sourced Findings. No fabricated results: a real search failure or an empty real result set is recorded honestly, never invented."
+owner = "atlas"
+tags = ["discovery", "research"]
+entrypoint = "atlas.assets.research_discovery.agent:ResearchDiscoveryAgent"
+
+[config]
+categories = ["request_research"]

@@ -14,7 +14,13 @@ def _memory(tmp_path):
 
 
 def _sourced_finding(category: str, i: int) -> Finding:
-    return Finding(source="research", category=category, description=f"signal {i}", evidence=f"https://example.com/{i}")
+    # evidence_role="direct_assertion" (2026-08-17, ONE BRAIN Evidence Role
+    # Gate): this shared scaffolding helper isn't testing role/origin
+    # independence semantics itself (those get their own dedicated tests
+    # below) -- it just needs N genuinely real, trustworthy, independent
+    # sources to get downstream verdict-selection logic past the evidence
+    # gate, the same way it always has.
+    return Finding(source="research", category=category, description=f"signal {i}", evidence=f"https://example.com/{i}", evidence_role="direct_assertion")
 
 
 def test_insufficient_evidence_with_only_one_source(tmp_path):
@@ -28,6 +34,70 @@ def test_insufficient_evidence_with_only_one_source(tmp_path):
     assert decision.verdict == "insufficient_evidence"
     assert decision.context["independent_sources"] == 1
     assert decision.goal_id is None
+
+
+# --- L: category-level decide()/confidence does not inflate from duplicate origin (2026-08-17, ONE BRAIN Evidence Provenance) ---
+
+
+def test_l_duplicate_real_world_origin_does_not_satisfy_independent_evidence_bar(tmp_path):
+    kb = _kb(tmp_path)
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+    # two real Findings, same real-world origin (same normalized URL), via
+    # two different internal sensors -- must count as ONE independent source
+    kb.save_finding(Finding(source="marketplace_catalog", category="affiliate", description="d1", evidence="https://example.com/prostadine", evidence_role="direct_assertion"))
+    kb.save_finding(Finding(source="browser", category="affiliate", description="d2", evidence="https://example.com/prostadine?utm_source=x", evidence_role="direct_assertion"))
+
+    decision = decide("affiliate", kb, memory, kpis)
+
+    assert decision.verdict == "insufficient_evidence"
+    assert decision.context["independent_sources"] == 1
+
+
+def test_l_two_genuinely_independent_known_origins_do_satisfy_the_bar(tmp_path):
+    kb = _kb(tmp_path)
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+    kb.save_finding(Finding(source="marketplace_catalog", category="affiliate", description="d1", evidence="https://vendor.example.com/prostadine", evidence_role="direct_assertion"))
+    kb.save_finding(Finding(source="browser", category="affiliate", description="d2", evidence="https://independent-review.example.com/prostadine", evidence_role="direct_assertion"))
+
+    decision = decide("affiliate", kb, memory, kpis)
+
+    assert decision.context["independent_sources"] == 2
+
+
+def test_n_finding_source_differences_alone_never_increase_independence(tmp_path):
+    """Test N: five different internal sensor names, same real origin,
+    must still count as exactly one independent source."""
+    kb = _kb(tmp_path)
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+    for sensor in ["marketplace_catalog", "browser", "research_discovery", "screen_observation", "manual"]:
+        kb.save_finding(Finding(source=sensor, category="affiliate", description="d", evidence="https://example.com/same-page", evidence_role="direct_assertion"))
+
+    decision = decide("affiliate", kb, memory, kpis)
+
+    assert decision.context["independent_sources"] == 1
+
+
+def test_o_two_relay_findings_with_unknown_claimant_do_not_satisfy_the_bar(tmp_path):
+    """ONE BRAIN Evidence Role Gate (2026-08-17): two DIFFERENT real
+    origins, both role=relay_or_quote, both claimant unknown -- decide()
+    must see this exactly like duplicated-origin evidence (test_l above),
+    not like two genuinely independent sources, even though the origins
+    themselves are real and distinct. Propagates through the same
+    centralized independent_source_count() decide() already uses --
+    no local reimplementation in decision_engine.py."""
+    kb = _kb(tmp_path)
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+    kb.save_finding(Finding(source="browser_research", category="affiliate", description="d1", evidence="https://site-a.example.com/prostadine", evidence_role="relay_or_quote"))
+    kb.save_finding(Finding(source="browser_research", category="affiliate", description="d2", evidence="https://site-b.example.com/prostadine", evidence_role="relay_or_quote"))
+
+    decision = decide("affiliate", kb, memory, kpis)
+
+    assert decision.verdict == "insufficient_evidence"
+    assert decision.context["independent_sources"] == 0
 
 
 def test_invest_verdict_for_channel_ready_unclaimed_category(tmp_path):

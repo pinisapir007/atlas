@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from atlas.brain.cashflow import goal_cash_flow
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.entity_resolution import detect_pinned_identity_conflicts
 from atlas.core.registry import UnsupportedVerb
 
 DEFAULT_STALE_KPI_HOURS = 1.0
@@ -119,6 +120,22 @@ def find_warnings(brain: CEOBrain, view: dict | None = None) -> list[str]:
 
     for name, age_hours in find_stale_kpis(brain):
         warnings.append(f"KPI '{name}' hasn't been updated in {age_hours:.1f}h")
+
+    # Identity-conflict warning (2026-08-17, ONE BRAIN Root Implementation):
+    # two already-real, persisted Opportunities later found to belong to
+    # the same real-world entity -- surfaced here, read-only, exactly
+    # like every other warning above, rather than through Proposal
+    # (rejected during design: Proposal.task_id is required, recreating
+    # the same Task->Goal chicken-and-egg problem this whole mechanism
+    # exists to avoid). Never merges/deletes/chooses -- entity_resolution.
+    # resolve_canonical_subject() already refuses to improve grouping for
+    # this exact case; this only makes the real, unresolved conflict
+    # visible to the founder.
+    for category, subject_a, subject_b in detect_pinned_identity_conflicts(brain.knowledge, brain.opportunities):
+        warnings.append(
+            f"Possible duplicate business identity in '{category}': '{subject_a}' and '{subject_b}' "
+            "appear to be the same real-world entity but are two separate Opportunities — founder review needed."
+        )
 
     return warnings
 

@@ -22,9 +22,14 @@ class _FakeObserver:
     def __init__(self, observation=None):
         self._observation = observation
         self.calls = []
+        # Recorded separately (kept at the original 2-tuple shape for
+        # `calls` so every existing assertion stays unchanged) -- proves
+        # verify_target was actually threaded through from BrowserPlugin.
+        self.verify_target_calls = []
 
-    def observe(self, url, extract=None):
+    def observe(self, url, extract=None, verify_target=None):
         self.calls.append((url, extract))
+        self.verify_target_calls.append(verify_target)
         return self._observation
 
 
@@ -49,6 +54,17 @@ def test_observe_refuses_before_calling_the_observer_when_domain_not_approved():
     assert observer.calls == []
 
 
+def test_observe_rejects_a_redirect_to_an_unapproved_domain_fail_closed():
+    allowlist = BrowserAllowlist(store=_FakeStore())
+    allowlist.approve_domain("reddit.com")
+    observation = PageObservation(url="https://not-approved.example/phishy", title="t", text_content="real content")
+    observer = _FakeObserver(observation=observation)
+    plugin = BrowserPlugin(observer=observer, allowlist=allowlist)
+
+    with pytest.raises(DomainNotApprovedError, match="not-approved.example"):
+        plugin.observe("https://reddit.com/x")
+
+
 def test_observe_delegates_to_the_real_wrapped_observer_once_approved():
     allowlist = BrowserAllowlist(store=_FakeStore())
     allowlist.approve_domain("reddit.com")
@@ -60,6 +76,18 @@ def test_observe_delegates_to_the_real_wrapped_observer_once_approved():
 
     assert result is observation
     assert observer.calls == [("https://reddit.com/x", {"heading": "the heading"})]
+
+
+def test_verify_target_is_passed_through_to_the_observer_as_allowlist_is_approved():
+    allowlist = BrowserAllowlist(store=_FakeStore())
+    allowlist.approve_domain("reddit.com")
+    observation = PageObservation(url="https://reddit.com/x", title="t", text_content="real content")
+    observer = _FakeObserver(observation=observation)
+    plugin = BrowserPlugin(observer=observer, allowlist=allowlist)
+
+    plugin.observe("https://reddit.com/x")
+
+    assert observer.verify_target_calls == [allowlist.is_approved]
 
 
 def test_name_is_browser():

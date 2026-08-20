@@ -34,7 +34,9 @@ def _memory(tmp_path):
 
 
 def _sourced_finding(category: str, i: int, subject: str = "") -> Finding:
-    return Finding(source="research", category=category, description=f"signal {i}", evidence=f"https://example.com/{i}", subject=subject)
+    # evidence_role="direct_assertion" (2026-08-17, ONE BRAIN Evidence Role
+    # Gate): scaffolding, not testing role/independence semantics itself.
+    return Finding(source="research", category=category, description=f"signal {i}", evidence=f"https://example.com/{i}", subject=subject, evidence_role="direct_assertion")
 
 
 def test_plan_is_not_executable_with_insufficient_evidence(tmp_path):
