@@ -32,6 +32,70 @@ def test_improving_kpi_produces_no_candidate(tmp_path):
     assert propose_improvements(kpis, [], [], [goal]) == []
 
 
+def test_lower_is_better_tasks_blocked_decrease_is_improvement(tmp_path):
+    kpis = KPIRegistry(BrainMemory(tmp_path / "brain.json"))
+    goal = Goal(description="grow", priority=1)
+
+    for value in (10.0, 5.0, 1.0):
+        kpis.record("tasks_blocked", value)
+
+    assert propose_improvements(kpis, [], [], [goal]) == []
+
+
+def test_tasks_blocked_at_zero_is_healthy_not_stagnant(tmp_path):
+    kpis = KPIRegistry(BrainMemory(tmp_path / "brain.json"))
+    goal = Goal(description="grow", priority=1)
+
+    for value in (0.0, 0.0, 0.0):
+        kpis.record("tasks_blocked", value)
+
+    assert propose_improvements(kpis, [], [], [goal]) == []
+
+
+def test_tasks_blocked_flat_above_zero_can_produce_candidate(tmp_path):
+    kpis = KPIRegistry(BrainMemory(tmp_path / "brain.json"))
+    goal = Goal(description="grow", priority=1)
+
+    for value in (8.0, 8.0, 8.0):
+        kpis.record("tasks_blocked", value)
+
+    candidates = propose_improvements(kpis, [], [], [goal])
+
+    assert len(candidates) == 1
+    assert candidates[0].category == "redesign_operational_architecture"
+    assert "tasks_blocked" in candidates[0].description
+
+
+def test_pending_approvals_decrease_is_improvement(tmp_path):
+    kpis = KPIRegistry(BrainMemory(tmp_path / "brain.json"))
+    goal = Goal(description="grow", priority=1)
+
+    for value in (12.0, 7.0, 3.0):
+        kpis.record("pending_approvals", value)
+
+    assert propose_improvements(kpis, [], [], [goal]) == []
+
+
+def test_ambiguous_publish_queue_snapshot_is_not_generic_stagnation_evidence(tmp_path):
+    kpis = KPIRegistry(BrainMemory(tmp_path / "brain.json"))
+    goal = Goal(description="grow", priority=1)
+
+    for value in (0.0, 0.0, 0.0):
+        kpis.record("publish_queue_failed_goal-g1", value)
+
+    assert propose_improvements(kpis, [], [], [goal]) == []
+
+
+def test_unknown_kpi_is_not_interpreted_without_explicit_semantics(tmp_path):
+    kpis = KPIRegistry(BrainMemory(tmp_path / "brain.json"))
+    goal = Goal(description="grow", priority=1)
+
+    for value in (5.0, 5.0, 5.0):
+        kpis.record("some_future_metric", value)
+
+    assert propose_improvements(kpis, [], [], [goal]) == []
+
+
 def test_no_active_goal_means_no_candidates(tmp_path):
     kpis = KPIRegistry(BrainMemory(tmp_path / "brain.json"))
     for value in (100.0, 100.0, 100.0):

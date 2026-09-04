@@ -8,6 +8,38 @@ SUCCESS_RATE_THRESHOLD = 0.5
 DEFAULT_COOLDOWN_DAYS = 30
 RESOLVED_STATUSES = {"done", "failed", "blocked", "rejected"}
 
+# Generic stagnation detection is intentionally narrow.
+#
+# A KPI is eligible only when its direction is unambiguous. Snapshot/state
+# metrics such as publish_queue_*, research_attempts_*, costs, risk scores,
+# etc. are not safe to interpret generically: zero may be healthy, higher
+# may be worse, or movement may merely reflect workflow state.
+_HIGHER_IS_BETTER_EXACT = {"revenue", "tasks_completed"}
+_HIGHER_IS_BETTER_PREFIXES = ("revenue_",)
+_LOWER_IS_BETTER_TARGETS = {
+    "tasks_blocked": 0.0,
+    "pending_approvals": 0.0,
+}
+
+
+def _kpi_stagnation_semantics(name: str) -> tuple[str, float | None] | None:
+    """Return explicit generic-improvement semantics for a KPI.
+
+    ("higher", None): larger values are improvement.
+    ("lower", target): smaller values are improvement and values at/below
+    target are already healthy.
+
+    None means the KPI is intentionally excluded from generic stagnation
+    reasoning because its meaning requires domain-specific context.
+    """
+    if name in _HIGHER_IS_BETTER_EXACT or name.startswith(_HIGHER_IS_BETTER_PREFIXES):
+        return ("higher", None)
+
+    if name in _LOWER_IS_BETTER_TARGETS:
+        return ("lower", _LOWER_IS_BETTER_TARGETS[name])
+
+    return None
+
 
 def propose_improvements(
     kpis: KPIRegistry,
@@ -30,11 +62,29 @@ def propose_improvements(
         return candidates
 
     for name in kpis.names():
+        semantics = _kpi_stagnation_semantics(name)
+        if semantics is None:
+            continue
+
         history = kpis.history(name)
         if len(history) < 3:
             continue
-        if history[-1]["value"] > history[-3]["value"]:
-            continue  # improved over its last two readings — no evidence of a problem
+
+        direction, healthy_target = semantics
+        latest = history[-1]["value"]
+        earlier = history[-3]["value"]
+
+        if direction == "higher":
+            if latest > earlier:
+                continue  # improved — no evidence of a problem
+        else:
+            # Lower-is-better KPIs must never treat a decrease as failure.
+            # Reaching the explicit healthy target is success even if flat.
+            if healthy_target is not None and latest <= healthy_target:
+                continue
+            if latest < earlier:
+                continue  # improved — no evidence of a problem
+
         category = "redesign_operational_architecture"
         if _in_cooldown(category, existing_tasks, cooldown_days):
             continue
