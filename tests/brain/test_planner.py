@@ -68,6 +68,29 @@ def test_done_task_still_allows_a_fresh_task_next_tick():
     assert tasks[0].goal_id == goal.id
 
 
+def test_goal_completion_fingerprint_prevents_identical_advance_replay():
+    goal = Goal(
+        description="Grow revenue",
+        priority=1,
+        planner_completion_fingerprint="Advance goal: Grow revenue",
+    )
+
+    assert SimplePlanner().plan([goal], []) == []
+
+
+def test_changed_goal_description_invalidates_old_completion_fingerprint():
+    goal = Goal(
+        description="Grow recurring revenue",
+        priority=1,
+        planner_completion_fingerprint="Advance goal: Grow revenue",
+    )
+
+    tasks = SimplePlanner().plan([goal], [])
+
+    assert len(tasks) == 1
+    assert tasks[0].description == "Advance goal: Grow recurring revenue"
+
+
 def test_failed_task_still_allows_a_fresh_task_next_tick():
     # Regression guard: "failed" must stay excluded from OPEN_STATUSES --
     # a genuinely failed attempt is worth retrying, unlike a structurally

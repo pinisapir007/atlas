@@ -5,7 +5,34 @@ from pathlib import Path
 from atlas.brain.models import Goal, Proposal, StrategicObjective, Task
 from atlas.brain.store import BrainStore, JSONFileStore
 
-_EMPTY = {"goals": {}, "tasks": {}, "proposals": {}, "kpis": {}, "log": [], "strategic_objectives": {}}
+_EMPTY = {
+    "goals": {},
+    "tasks": {},
+    "proposals": {},
+    "kpis": {},
+    "log": [],
+    "strategic_objectives": {},
+    "task_metrics": {"completed_total": 0},
+}
+
+
+def _ensure_compat(data: dict) -> None:
+    """Backfill additive BrainMemory schema without a manual migration.
+
+    For a brain.json created before task_metrics existed, the initial
+    completed_total is derived exactly once from the currently persisted
+    done Tasks. Once present, the counter is durable and never recomputed
+    from the live Task collection, so archiving historical Tasks cannot
+    make the company's lifetime completion count go backwards.
+    """
+    data.setdefault("strategic_objectives", {})
+    metrics = data.setdefault("task_metrics", {})
+    if "completed_total" not in metrics:
+        metrics["completed_total"] = sum(
+            1
+            for task in data.get("tasks", {}).values()
+            if isinstance(task, dict) and task.get("status") == "done"
+        )
 
 
 class BrainMemory:
@@ -43,10 +70,9 @@ class BrainMemory:
         data = self._store.read()
         if data is None:
             return json.loads(json.dumps(_EMPTY))
-        # Tolerates a real brain.json saved before StrategicObjective
-        # existed -- the same no-migration-needed discipline
-        # knowledge.json's success_laws addition already established.
-        data.setdefault("strategic_objectives", {})
+        # Tolerates real brain.json files saved before additive schema
+        # fields existed, without requiring a separate manual migration.
+        _ensure_compat(data)
         return data
 
     def _write(self, data: dict) -> None:
@@ -60,7 +86,7 @@ class BrainMemory:
         keep working through the compatibility fallback.
         """
         def apply(data: dict):
-            data.setdefault("strategic_objectives", {})
+            _ensure_compat(data)
             result = mutator(data)
             return data if result is None else result
 
@@ -89,7 +115,18 @@ class BrainMemory:
 
     def save_task(self, task: Task) -> None:
         def mutate(data):
+            previous = data["tasks"].get(task.id)
+
+            # Count a completion exactly once: only the transition from a
+            # missing/non-done persisted record into persisted "done".
+            # Re-saving the same completed Task is idempotent.
+            if task.status == "done" and (
+                previous is None or previous.get("status") != "done"
+            ):
+                data["task_metrics"]["completed_total"] += 1
+
             data["tasks"][task.id] = asdict(task)
+
         self._update(mutate)
 
     def tasks(self) -> list[Task]:
@@ -100,6 +137,13 @@ class BrainMemory:
         if raw is None:
             raise KeyError(f"no such task: {task_id}")
         return Task(**raw)
+
+    def completed_task_total(self) -> int:
+        """Lifetime number of Tasks that reached persisted done state.
+
+        Monotonic by construction and independent of Task archival.
+        """
+        return int(self._read()["task_metrics"]["completed_total"])
 
     def save_proposal(self, proposal: Proposal) -> None:
         def mutate(data):

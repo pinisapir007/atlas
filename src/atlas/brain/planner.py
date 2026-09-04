@@ -54,10 +54,19 @@ class SimplePlanner:
         for goal in goals:
             if goal.status != "active" or goal.id in goals_with_open_work:
                 continue
+
+            description = f"Advance goal: {goal.description}"
+
+            # A successfully completed generic fallback is durable Goal state,
+            # not an immortal Task sentinel. Do not replay the exact same
+            # fallback unless the Goal itself changes.
+            if goal.planner_completion_fingerprint == description:
+                continue
+
             new_tasks.append(
                 Task(
                     goal_id=goal.id,
-                    description=f"Advance goal: {goal.description}",
+                    description=description,
                     category=self._infer_category(goal.description),
                     # SimplePlanner only ever creates plain delegate/analyze/report
                     # work with no financial, access, or legal component — reversible

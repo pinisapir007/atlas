@@ -350,6 +350,18 @@ def test_check_measurement_blocks_until_profit_is_measurable_then_refreshes_conf
     measure = next(s for s in advanced.steps if s.kind == "check_measurement")
     assert measure.status == "blocked"
 
+    # Regression guard: re-checking the same unmeasured campaign is a pure
+    # no-op. It must not append another identical steps_advanced event or
+    # move the plan's updated_at timestamp.
+    event_count = len(advanced.event_log)
+    plan_updated_at = advanced.updated_at
+
+    unchanged = world.advance(plan.id)
+    measure = next(s for s in unchanged.steps if s.kind == "check_measurement")
+    assert measure.status == "blocked"
+    assert len(unchanged.event_log) == event_count
+    assert unchanged.updated_at == plan_updated_at
+
     world.kpis.record("revenue_goal-a", 200.0)
     world.kpis.record("cost_goal-a", 100.0)
     before_confidence = world.campaigns.get_campaign(campaign.id).confidence_score

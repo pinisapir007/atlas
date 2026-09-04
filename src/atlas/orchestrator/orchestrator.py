@@ -136,8 +136,11 @@ def advance_execution(
         if not all(by_id[dep].status == "done" for dep in step.depends_on):
             continue  # still waiting — leave as pending, re-checked next call
 
+        before_step_state = (step.status, step.task_id, dict(step.result))
         _perform_step(step, plan, campaign_registry, influencer_registry, memory, kpis, knowledge, landing_page_dir)
-        changed = True
+        after_step_state = (step.status, step.task_id, dict(step.result))
+        if after_step_state != before_step_state:
+            changed = True
 
     if changed:
         plan.updated_at = now()

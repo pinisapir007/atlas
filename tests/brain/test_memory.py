@@ -69,6 +69,60 @@ def test_goal_defaults_stay_backward_compatible(tmp_path):
     assert reloaded.engine_id is None
 
 
+def test_completed_task_total_counts_completion_exactly_once(tmp_path):
+    memory = BrainMemory(tmp_path / "brain.json")
+    task = Task(goal_id="g1", description="work")
+
+    memory.save_task(task)
+    assert memory.completed_task_total() == 0
+
+    task.transition("done", "completed")
+    memory.save_task(task)
+    assert memory.completed_task_total() == 1
+
+    # A normal later save of the same terminal Task must never double-count.
+    memory.save_task(task)
+    assert memory.completed_task_total() == 1
+
+
+def test_completed_task_total_survives_task_archival(tmp_path):
+    import json
+
+    path = tmp_path / "brain.json"
+    memory = BrainMemory(path)
+
+    task = Task(goal_id="g1", description="work", status="done")
+    memory.save_task(task)
+    assert memory.completed_task_total() == 1
+
+    # Simulate archival: historical Task leaves the live operational store,
+    # while canonical lifetime metrics remain.
+    raw = json.loads(path.read_text())
+    raw["tasks"].pop(task.id)
+    path.write_text(json.dumps(raw))
+
+    reloaded = BrainMemory(path)
+    assert reloaded.tasks() == []
+    assert reloaded.completed_task_total() == 1
+
+
+def test_old_brain_without_task_metrics_derives_initial_total(tmp_path):
+    import json
+
+    path = tmp_path / "brain.json"
+    memory = BrainMemory(path)
+
+    memory.save_task(Task(goal_id="g1", description="a", status="done"))
+    memory.save_task(Task(goal_id="g1", description="b", status="done"))
+    memory.save_task(Task(goal_id="g1", description="c", status="blocked"))
+
+    raw = json.loads(path.read_text())
+    del raw["task_metrics"]
+    path.write_text(json.dumps(raw))
+
+    assert BrainMemory(path).completed_task_total() == 2
+
+
 def test_missing_goal_raises_keyerror(tmp_path):
     memory = BrainMemory(tmp_path / "brain.json")
     with pytest.raises(KeyError):

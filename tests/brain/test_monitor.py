@@ -33,6 +33,54 @@ def test_sync_marks_delegated_task_done_via_report(tmp_path):
     assert memory.get_task(task.id).status == "done"
 
 
+def test_sync_records_completed_simple_planner_fingerprint_on_goal(tmp_path):
+    from atlas.brain.models import Goal
+
+    registry = _registry(tmp_path)
+    memory = BrainMemory(tmp_path / "brain.json")
+    kpis = KPIRegistry(memory)
+
+    goal = Goal(description="Grow revenue", priority=1)
+    memory.save_goal(goal)
+
+    task = Task(
+        goal_id=goal.id,
+        description="Advance goal: Grow revenue",
+        assigned_asset_id="sample-triggerable",
+        status="delegated",
+    )
+    memory.save_task(task)
+
+    Monitor().sync([task], registry, memory, kpis)
+
+    saved_goal = memory.get_goal(goal.id)
+    assert saved_goal.planner_completion_fingerprint == "Advance goal: Grow revenue"
+
+
+def test_sync_does_not_record_unrelated_done_task_as_planner_completion(tmp_path):
+    from atlas.brain.models import Goal
+
+    registry = _registry(tmp_path)
+    memory = BrainMemory(tmp_path / "brain.json")
+    kpis = KPIRegistry(memory)
+
+    goal = Goal(description="Grow revenue", priority=1)
+    memory.save_goal(goal)
+
+    task = Task(
+        goal_id=goal.id,
+        description="Analyze last campaign",
+        assigned_asset_id="sample-triggerable",
+        status="delegated",
+    )
+    memory.save_task(task)
+
+    Monitor().sync([task], registry, memory, kpis)
+
+    saved_goal = memory.get_goal(goal.id)
+    assert saved_goal.planner_completion_fingerprint == ""
+
+
 def test_sync_ignores_tasks_not_in_flight(tmp_path):
     registry = _registry(tmp_path)
     memory = BrainMemory(tmp_path / "brain.json")
@@ -50,6 +98,10 @@ def test_sync_records_operational_kpis(tmp_path):
     kpis = KPIRegistry(memory)
     done_task = Task(goal_id="g1", description="x", status="done")
     blocked_task = Task(goal_id="g1", description="y", status="blocked")
+
+    # completed_total is canonical persisted lifecycle state, not a count of
+    # whichever Task objects happen to be supplied to this Monitor call.
+    memory.save_task(done_task)
 
     Monitor().sync([done_task, blocked_task], registry, memory, kpis)
 

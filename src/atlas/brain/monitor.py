@@ -22,7 +22,7 @@ class Monitor:
             if task.status in IN_FLIGHT_STATUSES:
                 self._sync_one(task, registry, memory)
 
-        kpis.record("tasks_completed", float(sum(1 for t in tasks if t.status == "done")))
+        kpis.record("tasks_completed", float(memory.completed_task_total()))
         kpis.record("tasks_blocked", float(sum(1 for t in tasks if t.status == "blocked")))
         kpis.record(
             "pending_approvals",
@@ -83,6 +83,17 @@ class Monitor:
                     )
 
         memory.save_task(task)
+
+        # Close SimplePlanner's lifecycle automatically. A successfully
+        # completed exact generic fallback is recorded on the Goal itself,
+        # so no historical Task has to remain alive as a sentinel.
+        if task.status == "done" and task.description.startswith("Advance goal:"):
+            goal = memory.get_goal(task.goal_id)
+            expected = f"Advance goal: {goal.description}"
+            if task.description == expected and goal.planner_completion_fingerprint != expected:
+                goal.planner_completion_fingerprint = expected
+                memory.save_goal(goal)
+
         memory.append_log(
             {
                 "at": task.updated_at,

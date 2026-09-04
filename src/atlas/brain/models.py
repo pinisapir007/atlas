@@ -51,6 +51,14 @@ class Goal:
     founder_estimate: dict = field(default_factory=dict)
     # Optional grouping tag when several Goals represent one revenue engine.
     engine_id: str | None = None
+    # Canonical lifecycle state for SimplePlanner's generic fallback.
+    # This is NOT a Task sentinel or manual reminder. When the exact
+    # "Advance goal: <current description>" action completes successfully,
+    # Monitor stores that fingerprint here. SimplePlanner will not replay
+    # that identical fallback. If the Goal description later changes, the
+    # fingerprint no longer matches; the new fallback may run and this field
+    # is automatically overwritten when that new work completes.
+    planner_completion_fingerprint: str = ""
     id: str = field(default_factory=lambda: new_id("goal"))
     created_at: str = field(default_factory=now)
 
