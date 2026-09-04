@@ -11,6 +11,10 @@ class KPIRegistry:
     def record(self, name: str, value: float) -> None:
         self._memory.record_kpi(name, value, now())
 
+    def snapshot(self) -> dict[str, list[dict]]:
+        """Load every KPI history with one BrainMemory read."""
+        return self._memory.kpi_snapshot()
+
     def history(self, name: str) -> list[dict]:
         return self._memory.kpi_history(name)
 

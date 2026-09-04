@@ -13,10 +13,12 @@ is exactly the same real risk (autonomous local file access) that
 allowlist exists to gate.
 """
 
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from atlas.brain.resource_allowlist import ResourceAllowlist
-from atlas.integrations.base import PageObservation
+from atlas.integrations.base import MediaEvidence, PageObservation
 from atlas.integrations.gemini_provider import GeminiProvider, GeminiProviderError
 
 SUPPORTED_SUFFIXES = {".wav", ".mp3", ".aiff", ".aac", ".ogg", ".flac"}
@@ -86,6 +88,64 @@ class AudioPlugin:
             text_content=description,
             structured_data=structured_data,
         )
+
+    def observe_evidence(self, source_ref: str) -> list[MediaEvidence]:
+        """Return evidence-honest observations from one real audio file.
+
+        Gemini's transcription/audio interpretation remains a sensor
+        observation and is never treated as character-for-character
+        grounded source text.
+        """
+        audio_bytes, path = self._read_approved_audio(source_ref)
+        mime_type = _MIME_TYPES[path.suffix.lower()]
+
+        fields = {
+            "audible": (
+                "Describe only what is directly audible in this real audio, "
+                "including speech, speakers, music, or other sounds."
+            ),
+            "transcribed_text": (
+                "Transcribe the spoken words as accurately as possible. "
+                "Use an empty string if there is no speech."
+            ),
+            "confidence": (
+                "HIGH, MEDIUM, or LOW confidence that the observation is "
+                "directly supported by the audio."
+            ),
+        }
+
+        try:
+            raw = self._gemini.understand_audio_structured(
+                audio_bytes,
+                "Listen to this real audio as evidence. Do not infer facts that are not audibly supported.",
+                fields,
+                mime_type=mime_type,
+            )
+        except GeminiProviderError as exc:
+            raise AudioPluginError(str(exc)) from exc
+
+        audible = raw.get("audible", "").strip()
+        transcribed = raw.get("transcribed_text", "").strip()
+        confidence = raw.get("confidence", "").strip().upper()
+
+        if confidence not in {"HIGH", "MEDIUM", "LOW"}:
+            confidence = "UNKNOWN"
+
+        if not audible and not transcribed:
+            return []
+
+        return [
+            MediaEvidence(
+                source_ref=str(path.resolve()),
+                modality="audio",
+                locator="audio:whole",
+                audible=audible,
+                transcribed_text=transcribed,
+                confidence=confidence,
+                observed_at=datetime.now(timezone.utc).isoformat(),
+                content_hash=hashlib.sha256(audio_bytes).hexdigest(),
+            )
+        ]
 
     def _read_approved_audio(self, source_ref: str) -> tuple[bytes, Path]:
         if not self._allowlist.is_approved(source_ref):

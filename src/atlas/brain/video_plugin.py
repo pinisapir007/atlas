@@ -11,10 +11,12 @@ Reuses ResourceAllowlist, the same real local-file-access gate every
 other local-file plugin in this codebase already establishes.
 """
 
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from atlas.brain.resource_allowlist import ResourceAllowlist
-from atlas.integrations.base import PageObservation
+from atlas.integrations.base import MediaEvidence, PageObservation
 from atlas.integrations.gemini_provider import GeminiProvider, GeminiProviderError
 
 SUPPORTED_SUFFIXES = {".mp4", ".mpeg", ".mov", ".avi", ".flv", ".mpg", ".webm", ".wmv"}
@@ -84,6 +86,67 @@ class VideoPlugin:
             text_content=description,
             structured_data=structured_data,
         )
+
+    def observe_evidence(self, source_ref: str) -> list[MediaEvidence]:
+        """Return evidence-honest observations from one real local video.
+
+        Gemini's interpretation is sensor evidence, not independently
+        verified character-for-character source text.
+        """
+        video_bytes, path = self._read_approved_video(source_ref)
+        mime_type = _MIME_TYPES[path.suffix.lower()]
+
+        fields = {
+            "visual": (
+                "Describe only what is directly visible in this real video."
+            ),
+            "audible": (
+                "Describe only what is directly audible in this real video."
+            ),
+            "transcribed_text": (
+                "Transcribe the spoken words as accurately as possible. "
+                "Use an empty string if there is no speech."
+            ),
+            "confidence": (
+                "HIGH, MEDIUM, or LOW confidence that the observation is "
+                "directly supported by the video."
+            ),
+        }
+
+        try:
+            raw = self._gemini.understand_video_structured(
+                video_bytes,
+                "Watch this real video as evidence. Do not infer facts that are not directly supported.",
+                fields,
+                mime_type=mime_type,
+            )
+        except GeminiProviderError as exc:
+            raise VideoPluginError(str(exc)) from exc
+
+        visual = raw.get("visual", "").strip()
+        audible = raw.get("audible", "").strip()
+        transcribed = raw.get("transcribed_text", "").strip()
+        confidence = raw.get("confidence", "").strip().upper()
+
+        if confidence not in {"HIGH", "MEDIUM", "LOW"}:
+            confidence = "UNKNOWN"
+
+        if not visual and not audible and not transcribed:
+            return []
+
+        return [
+            MediaEvidence(
+                source_ref=str(path.resolve()),
+                modality="video",
+                locator="video:whole",
+                visual=visual,
+                audible=audible,
+                transcribed_text=transcribed,
+                confidence=confidence,
+                observed_at=datetime.now(timezone.utc).isoformat(),
+                content_hash=hashlib.sha256(video_bytes).hexdigest(),
+            )
+        ]
 
     def _read_approved_video(self, source_ref: str) -> tuple[bytes, Path]:
         if not self._allowlist.is_approved(source_ref):

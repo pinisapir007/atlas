@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 from atlas.brand.models import Brand
 from atlas.influencer.models import AssetLibraryEntry
 
@@ -24,9 +24,10 @@ class BrandRegistry:
         self._store.write(data)
 
     def save_brand(self, brand: Brand) -> None:
-        data = self._read()
-        data["brands"][brand.id] = brand.to_dict()
-        self._write(data)
+        def mutate(data):
+            data["brands"][brand.id] = brand.to_dict()
+
+        update_store(self._store, self._read(), mutate)
 
     def brands(self) -> list[Brand]:
         return [Brand.from_dict(b) for b in self._read()["brands"].values()]

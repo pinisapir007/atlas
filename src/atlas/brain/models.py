@@ -304,6 +304,22 @@ class Finding:
     # structure proves it (see evidence_provenance.py for exactly how
     # this gates independent-source counting).
     evidence_role: str = ""
+    # Stage 7 Observation Standard: when this evidence was actually
+    # observed, distinct from created_at (when the durable record was
+    # created). Empty means genuinely unknown for legacy/manual records.
+    observed_at: str = ""
+    # Precise position inside a larger source when known: page/section,
+    # paragraph, timestamp/range, frame, etc. Empty means source-level
+    # evidence only -- never a fabricated locator.
+    evidence_locator: str = ""
+    # Exact source excerpt that directly supports this Finding when one
+    # was actually verified. Empty means no exact excerpt was available
+    # or provable -- never a reconstructed/paraphrased quote.
+    evidence_excerpt: str = ""
+    # Stable fingerprint of the real observed source content. Enables
+    # later longitudinal change detection without treating a URL alone
+    # as proof that its contents stayed the same.
+    content_hash: str = ""
     id: str = field(default_factory=lambda: new_id("finding"))
     created_at: str = field(default_factory=now)
 
@@ -515,6 +531,8 @@ class LedgerEntry:
     # would be a fabricated correlation, not a real one.
     transaction_id: str = ""
     provider: str = ""  # which platform/account this event came from
+    provider_event_id: str = ""
+    currency: str = ""
     category: str = ""  # sub-classification for cost/fee entries, e.g. "commission", "ad_spend", "platform_fee"
     evidence: str = ""  # what proves this happened — never fabricated, "" when unverified
     document_ref: str = ""  # pointer to a stored invoice/receipt/statement, when one exists

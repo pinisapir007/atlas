@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 from atlas.influencer.models import AssetLibraryEntry, DigitalInfluencer, PlatformTarget
 
 
@@ -25,9 +25,10 @@ class InfluencerRegistry:
         self._store.write(data)
 
     def save_influencer(self, influencer: DigitalInfluencer) -> None:
-        data = self._read()
-        data["influencers"][influencer.id] = influencer.to_dict()
-        self._write(data)
+        def mutate(data):
+            data["influencers"][influencer.id] = influencer.to_dict()
+
+        update_store(self._store, self._read(), mutate)
 
     def influencers(self) -> list[DigitalInfluencer]:
         return [DigitalInfluencer.from_dict(d) for d in self._read()["influencers"].values()]

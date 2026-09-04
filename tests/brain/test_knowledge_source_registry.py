@@ -5,14 +5,23 @@ from atlas.brain.browser_plugin import BrowserPlugin
 from atlas.brain.document_plugin import DocumentPlugin
 from atlas.brain.image_plugin import ImagePlugin
 from atlas.brain.knowledge_source_registry import KNOWLEDGE_SOURCE_PLUGINS, select_plugin
+from atlas.brain.pdf_plugin import PDFPlugin
 from atlas.brain.video_plugin import VideoPlugin
 from atlas.brain.youtube_plugin import YouTubePlugin
 from atlas.integrations.base import KnowledgeSourcePlugin
 
 
-def test_registry_has_six_real_implementations():
-    assert len(KNOWLEDGE_SOURCE_PLUGINS) == 6
-    for cls in (YouTubePlugin, BrowserPlugin, DocumentPlugin, ImagePlugin, AudioPlugin, VideoPlugin):
+def test_registry_has_seven_real_implementations():
+    assert len(KNOWLEDGE_SOURCE_PLUGINS) == 7
+    for cls in (
+        YouTubePlugin,
+        BrowserPlugin,
+        DocumentPlugin,
+        PDFPlugin,
+        ImagePlugin,
+        AudioPlugin,
+        VideoPlugin,
+    ):
         assert any(isinstance(p, cls) for p in KNOWLEDGE_SOURCE_PLUGINS)
 
 
@@ -40,6 +49,11 @@ def test_select_plugin_dispatches_a_youtube_url_to_the_youtube_plugin_not_the_br
 def test_select_plugin_dispatches_a_text_file_to_the_document_plugin():
     plugin = select_plugin("C:/scratch/notes.txt")
     assert isinstance(plugin, DocumentPlugin)
+
+
+def test_select_plugin_dispatches_a_pdf_file_to_the_pdf_plugin():
+    plugin = select_plugin("C:/scratch/report.pdf")
+    assert isinstance(plugin, PDFPlugin)
 
 
 def test_select_plugin_dispatches_an_image_file_to_the_image_plugin():

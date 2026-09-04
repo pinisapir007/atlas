@@ -5,7 +5,7 @@ from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import now
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 from atlas.campaign.models import Campaign
 from atlas.influencer.registry import InfluencerRegistry
 
@@ -29,9 +29,10 @@ class CampaignRegistry:
         self._store.write(data)
 
     def save_campaign(self, campaign: Campaign) -> None:
-        data = self._read()
-        data["campaigns"][campaign.id] = campaign.to_dict()
-        self._write(data)
+        def mutate(data):
+            data["campaigns"][campaign.id] = campaign.to_dict()
+
+        update_store(self._store, self._read(), mutate)
 
     def campaigns(self) -> list[Campaign]:
         return [Campaign.from_dict(c) for c in self._read()["campaigns"].values()]

@@ -8,3 +8,12 @@ dist/
 .atlas/
 .atlas_backups/
 logs/
+
+# Local research and qualification artifacts
+research_sources/
+
+# Local working backups
+backups/
+*.bak
+*.bak-*
+*.before-concurrency-fix

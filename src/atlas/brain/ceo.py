@@ -1,6 +1,7 @@
 from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.assets.affiliate_intelligence.agent import DEFAULT_STORE_PATH as AFFILIATE_INTELLIGENCE_STORE_PATH
 from atlas.assets.research_discovery.agent import ResearchDiscoveryAgent
+from atlas.assets.video_research.agent import VideoResearchAgent
 from atlas.brain.affiliate_intelligence_advance import advance_affiliate_intelligence
 from atlas.brain.affiliate_pipeline_advance import advance_affiliate_pipeline
 from atlas.brain.business_plan_advance import advance_business_plan_generation
@@ -15,6 +16,7 @@ from atlas.brain.deep_research_advance import advance_deep_research
 from atlas.brain.discovery.decide import advance_executive_discovery, decide_all_with_discovery
 from atlas.brain.delegator import Delegator, is_structural
 from atlas.brain.editorial_review_advance import advance_editorial_review
+from atlas.brain.feature_flags import pattern_hypothesis_enabled
 from atlas.brain.publishing_gateway_advance import advance_publishing_gateway
 from atlas.brain.improvement import propose_improvements
 from atlas.brain.intake import absorb_opportunities
@@ -32,6 +34,7 @@ from atlas.brain.models import Decision, Goal, Task, now
 from atlas.brain.monitor import Monitor
 from atlas.brain.decision_priority_advance import apply_reasoning_priority
 from atlas.brain.opportunities import OpportunityStore
+from atlas.brain.pattern_hypothesis_advance import advance_pattern_hypotheses
 from atlas.brain.opportunity_advance import advance_opportunities_from_findings
 from atlas.brain.pipeline_advance import advance_recruitment_pipeline
 from atlas.brain.planner import Planner, SimplePlanner
@@ -39,8 +42,10 @@ from atlas.brain.prioritizer import Prioritizer, SimplePrioritizer
 from atlas.brain.reasoning_advance import advance_opportunity_comparisons
 from atlas.brain.reporter import Reporter
 from atlas.brain.revenue_strategy import commit_ready_opportunities
+from atlas.brain.sales_sync import advance_sales_sync
 from atlas.brain.risk import RiskPolicy
 from atlas.brain.tick_lock import TickAlreadyRunning, tick_lock
+from atlas.brain.video_research_advance import advance_video_research
 from atlas.brain.strategist import SimpleStrategist, Strategist
 from atlas.brand.registry import BrandRegistry
 from atlas.campaign.registry import CampaignRegistry
@@ -100,7 +105,16 @@ class CEOBrain:
         self.registry = (
             registry
             if registry is not None
-            else Registry(instances={"research_discovery": ResearchDiscoveryAgent(knowledge=self.knowledge)})
+            else Registry(
+                instances={
+                    "research_discovery": ResearchDiscoveryAgent(
+                        knowledge=self.knowledge
+                    ),
+                    "video_research": VideoResearchAgent(
+                        knowledge=self.knowledge
+                    ),
+                }
+            )
         )
         self.planner = planner if planner is not None else SimplePlanner()
         self.prioritizer = prioritizer if prioritizer is not None else SimplePrioritizer()
@@ -176,8 +190,23 @@ class CEOBrain:
             return []
 
     def _tick_impl(self) -> list[Task]:
+        # Stage 7 / Layer 2 baseline snapshot. Taken before ANY tick work
+        # can create new Findings. Only needed when the feature is enabled;
+        # disabled production keeps zero Layer-2 KnowledgeBase scan here.
+        layer2_baseline_finding_ids = (
+            {finding.id for finding in self.knowledge.findings()}
+            if pattern_hypothesis_enabled()
+            else None
+        )
+
         goals = self.memory.goals()
         tasks = self.memory.tasks()
+
+        # Autonomous Revenue / Sales Sync V2. The bridge itself is
+        # feature-flag gated and makes zero provider calls while disabled.
+        # Runs before planning/decision work so newly verified revenue or
+        # reversals are visible to this same tick's reasoning.
+        advance_sales_sync(goals, self.kpis, self.ledger)
 
         new_tasks = self.planner.plan(goals, tasks)
         for task in new_tasks:
@@ -207,6 +236,13 @@ class CEOBrain:
         # state itself.
         advance_executive_discovery(self.knowledge, self.memory, self.kpis)
 
+        # Executive Discovery -> Video Research source bridge. Deliberately
+        # separate from ResearchDiscoveryAgent: when its own feature flag is
+        # off this is an inert no-op; when enabled it may create at most one
+        # bounded video_research Task for the normal next-tick delegation
+        # lifecycle. It never performs Gemini video understanding here.
+        advance_video_research(self.memory, self.knowledge, self.kpis)
+
         # Shallow -> Deep Research Escalation (P0 Independence Mission,
         # 2026-08-18) -- runs immediately after the shallow trigger above
         # so a category that just became research_exhausted() this same
@@ -232,6 +268,19 @@ class CEOBrain:
         # this tick.
         advance_marketplace_investigations(self.marketplace_catalog, self.knowledge, self.investigations)
         advance_investigations(self.investigations, self.knowledge, source_refs={})
+
+        # Stage 7 / Layer 2 autonomous Pattern/Hypothesis Formation.
+        # Feature-flagged OFF by default and internally bounded to one
+        # category per tick. It writes Claim knowledge/audit markers only:
+        # never Tasks, Goals, Decisions, dispatch, spending, or publishing.
+        # The start-of-tick baseline above lets the first enabled tick
+        # distinguish historical evidence from Findings genuinely created
+        # during this tick.
+        advance_pattern_hypotheses(
+            self.memory,
+            self.knowledge,
+            baseline_finding_ids=layer2_baseline_finding_ids,
+        )
 
         # Connectivity Bridges 1-3 (docs/DESIGN_BRIDGE_INTEGRATION.md,
         # 2026-08-11) -- integration only, zero new judgment anywhere in

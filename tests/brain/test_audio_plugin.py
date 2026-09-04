@@ -121,3 +121,39 @@ def test_a_real_provider_failure_is_wrapped_loudly(tmp_path):
 
 def test_name_is_audio():
     assert AudioPlugin(allowlist=_allowlist()).name == "audio"
+
+
+def test_observe_evidence_returns_canonical_audio_media_evidence(tmp_path):
+    audio = tmp_path / "clip.wav"
+    audio_bytes = b"real-fake-wav-bytes"
+    audio.write_bytes(audio_bytes)
+
+    allowlist = _allowlist()
+    allowlist.approve_folder(str(tmp_path))
+
+    fake_provider = _FakeGeminiProvider(
+        structured={
+            "audible": "One speaker is speaking clearly.",
+            "transcribed_text": "Atlas audio qualification price forty seven dollars.",
+            "confidence": "HIGH",
+        }
+    )
+
+    plugin = AudioPlugin(
+        allowlist=allowlist,
+        gemini_provider=fake_provider,
+    )
+
+    evidence = plugin.observe_evidence(str(audio))
+
+    assert len(evidence) == 1
+    item = evidence[0]
+
+    assert item.source_ref == str(audio.resolve())
+    assert item.modality == "audio"
+    assert item.locator == "audio:whole"
+    assert item.audible == "One speaker is speaking clearly."
+    assert item.transcribed_text == "Atlas audio qualification price forty seven dollars."
+    assert item.confidence == "HIGH"
+    assert item.observed_at
+    assert len(item.content_hash) == 64

@@ -2,7 +2,85 @@ import json
 import os
 import urllib.error
 import urllib.request
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlunparse
+
+
+_CAMPAIGN_KEY_ALLOWED = frozenset(
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    "_-"
+)
+
+
+def add_campaign_key(url: str, campaign_key: str) -> str:
+    """Return a Digistore24 affiliate URL carrying `campaign_key`.
+
+    Supports only the two real Digistore24 affiliate URL shapes ATLAS
+    currently has evidence for:
+
+    1. Promocode landing-page links:
+       https://vendor.example/page#aff=AFFILIATE
+       -> #aff=AFFILIATE&cam=CAMPAIGNKEY
+
+    2. Digistore24 promolinks:
+       .../redir/PRODUCT_ID/AFFILIATE/
+       -> .../redir/PRODUCT_ID/AFFILIATE/CAMPAIGNKEY/
+
+    Unknown URL shapes are returned unchanged rather than guessed.
+    Existing campaign keys are replaced, making repeated calls idempotent.
+    """
+    if not url or not campaign_key:
+        return url
+
+    if len(campaign_key) > 127 or any(ch not in _CAMPAIGN_KEY_ALLOWED for ch in campaign_key):
+        raise ValueError(
+            "Digistore24 campaign_key must be <=127 characters and contain "
+            "only letters, numbers, '_' or '-'"
+        )
+
+    parsed = urlparse(url)
+
+    # Real Digistore24 promocode form used by vendor-owned landing pages:
+    # #aff=AFFILIATE&cam=CAMPAIGNKEY
+    fragment_pairs = parse_qsl(parsed.fragment, keep_blank_values=True)
+    if any(key == "aff" and value for key, value in fragment_pairs):
+        fragment_pairs = [
+            (key, value)
+            for key, value in fragment_pairs
+            if key != "cam"
+        ]
+        fragment_pairs.append(("cam", campaign_key))
+        return urlunparse(
+            parsed._replace(fragment=urlencode(fragment_pairs))
+        )
+
+    # Real Digistore24 promolink form:
+    # /redir/PRODUCT_ID/AFFILIATE/CAMPAIGNKEY
+    host = (parsed.hostname or "").lower()
+    supported_host = (
+        host == "digistore24.com"
+        or host.endswith(".digistore24.com")
+        or host == "checkout-ds24.com"
+        or host.endswith(".checkout-ds24.com")
+    )
+
+    parts = [part for part in parsed.path.split("/") if part]
+
+    if supported_host and len(parts) in (3, 4) and parts[0] == "redir":
+        if len(parts) == 3:
+            parts.append(campaign_key)
+        else:
+            parts[3] = campaign_key
+
+        new_path = "/" + "/".join(parts)
+        if parsed.path.endswith("/"):
+            new_path += "/"
+
+        return urlunparse(parsed._replace(path=new_path))
+
+    # Fail closed: never invent tracking syntax for an unknown URL shape.
+    return url
 
 
 class Digistore24APIError(Exception):
@@ -159,6 +237,69 @@ class Digistore24Provider:
                 f"Digistore24 listPurchases response had no real 'data.purchase_list' list: {response!r}"
             )
         return data["purchase_list"]
+
+    def fetch_recent_commissions(self) -> list[dict] | None:
+        """Return raw commission events from Digistore24 listCommissions."""
+        if not os.environ.get(self._API_KEY_ENV):
+            return None
+
+        response = self._call("listCommissions")
+        data = response.get("data")
+
+        # Live-verified 2026-09-03: listCommissions wraps the commission
+        # list under data.items, despite the OpenAPI path schema showing
+        # items at the response root. Trust the observed live envelope.
+        if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+            raise Digistore24APIError(
+                "Digistore24 listCommissions response had no live-verified "
+                f"'data.items' list: {response!r}"
+            )
+
+        return data["items"]
+
+    def fetch_recent_transactions(self) -> list[dict] | None:
+        """Return raw transaction events from Digistore24 listTransactions."""
+        if not os.environ.get(self._API_KEY_ENV):
+            return None
+
+        response = self._call("listTransactions")
+        data = response.get("data")
+
+        if not isinstance(data, dict) or not isinstance(
+            data.get("transaction_list"), list
+        ):
+            raise Digistore24APIError(
+                "Digistore24 listTransactions response had no documented "
+                f"'data.transaction_list' list: {response!r}"
+            )
+
+        return data["transaction_list"]
+
+    def get_purchase_tracking(self, purchase_id: str) -> dict | None:
+        """Return tracking data for one purchase.
+
+        For a single purchase_id the documented response contains
+        data.campaign_key, which ATLAS can use for goal attribution.
+        """
+        if not purchase_id:
+            raise ValueError("purchase_id is required")
+
+        if not os.environ.get(self._API_KEY_ENV):
+            return None
+
+        response = self._call(
+            "getPurchaseTracking",
+            {"purchase_id": purchase_id},
+        )
+        data = response.get("data")
+
+        if not isinstance(data, dict):
+            raise Digistore24APIError(
+                "Digistore24 getPurchaseTracking response had no documented "
+                f"'data' object: {response!r}"
+            )
+
+        return data
 
     def list_marketplace_entries(self, sort_by: str | None = None) -> dict | None:
         """Real, read-only PROBE call to `listMarketplaceEntries`

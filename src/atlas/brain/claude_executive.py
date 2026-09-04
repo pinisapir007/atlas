@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from atlas.brain.models import new_id, now
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 from atlas.integrations.claude_provider import send_task as _send_task_raw
 
 
@@ -55,9 +55,10 @@ class ClaudeExecutiveLog:
         return data if data is not None else {"interactions": {}}
 
     def record(self, result: ClaudeTaskResult) -> None:
-        data = self._read()
-        data["interactions"][result.id] = asdict(result)
-        self._store.write(data)
+        def mutate(data):
+            data["interactions"][result.id] = asdict(result)
+
+        update_store(self._store, self._read(), mutate)
 
     def interactions(self) -> list[ClaudeTaskResult]:
         return [ClaudeTaskResult(**i) for i in self._read()["interactions"].values()]

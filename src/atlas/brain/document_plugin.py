@@ -48,6 +48,7 @@ class DocumentPlugin:
     in this codebase uses."""
 
     name = "document"
+    raw_text_grounded = True
 
     def __init__(self, allowlist: ResourceAllowlist | None = None, ai_provider: AIProvider | None = None):
         self._allowlist = allowlist if allowlist is not None else ResourceAllowlist()

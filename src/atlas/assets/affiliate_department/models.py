@@ -76,6 +76,28 @@ def validate_provider_link(provider: str, real_affiliate_link: str) -> None:
         raise ValueError(f"real_affiliate_link is not a valid {provider} link: {real_affiliate_link!r}")
 
 
+def provider_tracking_link(
+    provider: str,
+    real_affiliate_link: str,
+    campaign_key: str,
+) -> str:
+    """Return the real affiliate link with provider-supported attribution.
+
+    Only modifies links for providers whose real tracking syntax ATLAS
+    explicitly knows. Unknown/unimplemented providers remain byte-for-byte
+    unchanged rather than guessing a tracking convention.
+    """
+    if not real_affiliate_link or not campaign_key:
+        return real_affiliate_link
+
+    if provider == "digistore24":
+        from atlas.integrations.digistore24 import add_campaign_key
+
+        return add_campaign_key(real_affiliate_link, campaign_key)
+
+    return real_affiliate_link
+
+
 @dataclass
 class AffiliateOpportunity:
     """One affiliate opportunity moving through discovery, evaluation, and

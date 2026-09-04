@@ -24,6 +24,10 @@ from atlas.brain.evidence_role_classification import UNKNOWN as ROLE_UNKNOWN
 from atlas.brain.evidence_role_classification import classify_evidence_role
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.models import Finding
+from atlas.brain.observation_metadata import (
+    observation_content_hash,
+    observation_observed_at,
+)
 from atlas.brain.subject_verification import SubjectMatch, verify_subject_match
 from atlas.integrations.base import AIProvider, BrowserObserver, PageObservation
 
@@ -126,6 +130,8 @@ def collect_evidence_from_url(
         subject=subject,
         market=market,
         evidence_role=evidence_role,
+        observed_at=observation_observed_at(observation),
+        content_hash=observation_content_hash(observation),
     )
     knowledge.save_finding(finding)
     return finding

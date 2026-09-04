@@ -30,23 +30,57 @@ class Monitor:
         )
 
     def _sync_one(self, task: Task, registry: Registry, memory: BrainMemory) -> None:
-        try:
-            report = registry.dispatch(task.assigned_asset_id, "report")
-        except UnsupportedVerb:
-            # try_complete(), not transition("done", ...) directly (2026-08-17,
-            # ONE BRAIN Root Implementation): a Task that declared a real
-            # expected_outcome must never reach "done" on the strength of
-            # "the asset didn't even report status" alone -- falls back to
-            # "blocked" (awaiting independent verification) instead. Every
-            # Task without expected_outcome (the overwhelming majority,
-            # today's exact behavior) still reaches "done" here, unchanged.
-            task.try_complete("asset does not report status; assumed complete on dispatch")
+        exact = None
+        task_result = getattr(registry, "task_result", None)
+
+        if callable(task_result):
+            exact = task_result(
+                task.id,
+                asset_id=task.assigned_asset_id,
+            )
+
+        exact_status = (
+            exact.get("status")
+            if isinstance(exact, dict)
+            else None
+        )
+
+        if exact_status in ("failed", "error"):
+            task.transition(
+                "failed",
+                f"exact task run result: {exact}",
+            )
+
+        elif exact_status == "done":
+            task.try_complete(
+                f"exact task run result: {exact}"
+            )
+
         else:
-            status = report.get("status") if isinstance(report, dict) else None
-            if status in ("failed", "error"):
-                task.transition("failed", f"asset reported: {report}")
+            try:
+                report = registry.dispatch(
+                    task.assigned_asset_id,
+                    "report",
+                )
+            except UnsupportedVerb:
+                task.try_complete(
+                    "asset does not report status; assumed complete on dispatch"
+                )
             else:
-                task.try_complete(f"asset reported: {report}")
+                status = (
+                    report.get("status")
+                    if isinstance(report, dict)
+                    else None
+                )
+                if status in ("failed", "error"):
+                    task.transition(
+                        "failed",
+                        f"asset reported: {report}",
+                    )
+                else:
+                    task.try_complete(
+                        f"asset reported: {report}"
+                    )
 
         memory.save_task(task)
         memory.append_log(

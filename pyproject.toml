@@ -15,7 +15,7 @@ requires-python = ">=3.11"
 # on this project's real deployment platform. Windows-conditional via
 # the standard PEP 508 marker -- a no-op include on platforms that
 # already have system tz data.
-dependencies = ["tzdata; sys_platform == 'win32'"]
+dependencies = ["tzdata; sys_platform == 'win32'", "pypdf>=6.14,<7"]
 
 [project.scripts]
 atlas = "atlas.cli:main"

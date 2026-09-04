@@ -120,3 +120,39 @@ def test_a_real_provider_failure_is_wrapped_loudly(tmp_path):
 
 def test_name_is_image():
     assert ImagePlugin(allowlist=_allowlist()).name == "image"
+
+
+def test_observe_evidence_returns_canonical_image_media_evidence(tmp_path):
+    img = tmp_path / "photo.png"
+    image_bytes = b"real-fake-png-bytes"
+    img.write_bytes(image_bytes)
+
+    allowlist = _allowlist()
+    allowlist.approve_folder(str(tmp_path))
+
+    fake_provider = _FakeGeminiProvider(
+        structured={
+            "visual": "A blue product package is visible on a table.",
+            "transcribed_text": "KetoDNA",
+            "confidence": "HIGH",
+        }
+    )
+
+    plugin = ImagePlugin(
+        allowlist=allowlist,
+        gemini_provider=fake_provider,
+    )
+
+    evidence = plugin.observe_evidence(str(img))
+
+    assert len(evidence) == 1
+    item = evidence[0]
+
+    assert item.source_ref == str(img.resolve())
+    assert item.modality == "image"
+    assert item.locator == "image:whole"
+    assert item.visual == "A blue product package is visible on a table."
+    assert item.transcribed_text == "KetoDNA"
+    assert item.confidence == "HIGH"
+    assert item.observed_at
+    assert len(item.content_hash) == 64

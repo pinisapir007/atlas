@@ -23,6 +23,7 @@ from atlas.brain.audio_plugin import AudioPlugin
 from atlas.brain.browser_plugin import BrowserPlugin
 from atlas.brain.document_plugin import DocumentPlugin
 from atlas.brain.image_plugin import ImagePlugin
+from atlas.brain.pdf_plugin import PDFPlugin
 from atlas.brain.video_plugin import VideoPlugin
 from atlas.brain.youtube_plugin import YouTubePlugin
 from atlas.integrations.base import KnowledgeSourcePlugin
@@ -31,6 +32,7 @@ KNOWLEDGE_SOURCE_PLUGINS: list[KnowledgeSourcePlugin] = [
     YouTubePlugin(),
     BrowserPlugin(),
     DocumentPlugin(),
+    PDFPlugin(),
     ImagePlugin(),
     AudioPlugin(),
     VideoPlugin(),

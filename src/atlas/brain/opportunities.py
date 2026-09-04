@@ -14,7 +14,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from atlas.brain.models import Opportunity
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 
 
 class OpportunityStore:
@@ -29,9 +29,10 @@ class OpportunityStore:
         self._store.write(data)
 
     def save_opportunity(self, opportunity: Opportunity) -> None:
-        data = self._read()
-        data["opportunities"][opportunity.id] = asdict(opportunity)
-        self._write(data)
+        def mutate(data):
+            data["opportunities"][opportunity.id] = asdict(opportunity)
+
+        update_store(self._store, self._read(), mutate)
 
     def opportunities(self) -> list[Opportunity]:
         return [Opportunity(**o) for o in self._read()["opportunities"].values()]

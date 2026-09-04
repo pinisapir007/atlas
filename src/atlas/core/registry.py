@@ -52,6 +52,30 @@ class Registry:
             raise KeyError(f"no such asset: {asset_id}")
         return self._records[asset_id]
 
+    @staticmethod
+    def _task_result_key(task_id: str) -> str:
+        """Private Store key for one exact Task execution result.
+
+        Kept separate from the asset's aggregate state: Reportable.report()
+        remains an asset-level contract, while this record answers the
+        different question "what did run() return for this exact Task?".
+        """
+        return f"__task_result__:{task_id}"
+
+    def task_result(self, task_id: str, asset_id: str | None = None) -> dict | None:
+        """Return the durable exact run result metadata for one Task.
+
+        None means no exact result was persisted. `asset_id`, when supplied,
+        prevents a stale/mismatched record from being attributed to a Task's
+        currently assigned asset.
+        """
+        state = self._store.get(self._task_result_key(task_id))
+        if not isinstance(state, dict) or not state:
+            return None
+        if asset_id is not None and state.get("asset_id") != asset_id:
+            return None
+        return state
+
     def _instance(self, asset_id: str) -> object:
         if asset_id not in self._instances:
             record = self.get_record(asset_id)
@@ -72,12 +96,30 @@ class Registry:
             raise UnsupportedVerb(f"asset '{asset_id}' ({kind}) does not support '{verb}'")
 
         result = getattr(instance, method_name)(**kwargs)
+        at = datetime.now(timezone.utc).isoformat()
+
         self._store.set(
             asset_id,
             {
                 "last_verb": verb,
                 "result": result if isinstance(result, (str, int, float, bool, type(None))) else str(result),
-                "at": datetime.now(timezone.utc).isoformat(),
+                "at": at,
             },
         )
+
+        task = kwargs.get("task") if verb == "run" else None
+        task_id = getattr(task, "id", None)
+        status = result.get("status") if isinstance(result, dict) else None
+
+        if isinstance(task_id, str) and task_id and isinstance(status, str):
+            self._store.set(
+                self._task_result_key(task_id),
+                {
+                    "asset_id": asset_id,
+                    "status": status,
+                    "result": str(result),
+                    "at": at,
+                },
+            )
+
         return result

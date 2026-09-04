@@ -1,4 +1,4 @@
-from atlas.assets.affiliate_department.models import AffiliateOpportunity
+from atlas.assets.affiliate_department.models import AffiliateOpportunity, provider_tracking_link
 from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.assets.affiliate_intelligence.agent import DEFAULT_STORE_PATH
 from atlas.brain.knowledge import KnowledgeBase
@@ -188,7 +188,11 @@ def advance_decision_driven_campaigns(
             # affiliate_department.models.validate_provider_link(), run at
             # real product intake) — without this, the campaign's CTA/
             # landing-page content would have nothing real to point at.
-            destination_url=opportunity.real_affiliate_link,
+            destination_url=provider_tracking_link(
+                opportunity.provider,
+                opportunity.real_affiliate_link,
+                opportunity.goal_id or "",
+            ),
             success_law_ids=law_ids,
         )
         set_status(campaign.id, "active", campaigns)

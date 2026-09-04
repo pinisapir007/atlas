@@ -12,7 +12,7 @@ layer further out to the real, public internet.
 
 from urllib.parse import urlparse
 
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 from pathlib import Path
 
 
@@ -38,19 +38,21 @@ class BrowserAllowlist:
         no scheme/path) so "https://Reddit.com/r/x" and "reddit.com"
         are recognized as the same real approval."""
         normalized = _normalize_domain(domain)
-        data = self._read()
-        if normalized not in data["domains"]:
-            data["domains"].append(normalized)
-            self._write(data)
+        def mutate(data):
+            if normalized not in data["domains"]:
+                data["domains"].append(normalized)
+
+        update_store(self._store, self._read(), mutate)
 
     def revoke_domain(self, domain: str) -> None:
         """Removes a domain's approval — the next call onward is
         refused. A no-op if it was never approved."""
         normalized = _normalize_domain(domain)
-        data = self._read()
-        if normalized in data["domains"]:
-            data["domains"].remove(normalized)
-            self._write(data)
+        def mutate(data):
+            if normalized in data["domains"]:
+                data["domains"].remove(normalized)
+
+        update_store(self._store, self._read(), mutate)
 
     def approved_domains(self) -> list[str]:
         return list(self._read()["domains"])

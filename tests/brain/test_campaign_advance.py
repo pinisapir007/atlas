@@ -687,3 +687,25 @@ def test_missing_market_influencer_proposal_is_not_duplicated_across_repeated_ad
 
     gap_tasks = [t for t in world.memory.tasks() if t.category == "create_asset" and t.source_opportunity_id == opportunity.id and t.description.startswith(INFLUENCER_TASK_MARKER)]
     assert len(gap_tasks) == 1
+
+
+
+def test_digistore24_campaign_destination_is_attributed_to_goal(tmp_path):
+    world = _World(tmp_path)
+    goal = world.decision_engine_goal()
+
+    opportunity = world.selected_opportunity(
+        goal.id,
+        real_affiliate_link="https://KetoDNA.app/d#aff=2026mayabotd1b5",
+    )
+    opportunity.provider = "digistore24"
+    world.affiliate_store.save_opportunity(opportunity)
+    world.influencer()
+
+    world.advance()
+
+    campaign = world.campaigns.campaigns()[0]
+    assert campaign.destination_url == (
+        "https://KetoDNA.app/d"
+        f"#aff=2026mayabotd1b5&cam={goal.id}"
+    )

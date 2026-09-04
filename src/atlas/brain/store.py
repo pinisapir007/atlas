@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Protocol
 
-from atlas.core.store import read_json, write_json_atomic
+from atlas.core.store import read_json, update_json_atomic, write_json_atomic
 
 
 class BrainStore(Protocol):
@@ -17,6 +17,30 @@ class BrainStore(Protocol):
     def write(self, data: dict) -> None: ...
 
 
+def update_store(store: BrainStore, default: dict, mutator) -> dict:
+    """Perform one read-modify-write transaction when the backend supports it.
+
+    JSONFileStore provides a real thread/process-safe update(). Lightweight
+    test or future backends that only implement read()/write() remain
+    compatible through the fallback.
+    """
+    update = getattr(store, "update", None)
+    if callable(update):
+        return update(default, mutator)
+
+    data = store.read()
+    if data is None:
+        import json
+        data = json.loads(json.dumps(default))
+
+    result = mutator(data)
+    if result is not None:
+        data = result
+
+    store.write(data)
+    return data
+
+
 class JSONFileStore:
     """Default BrainStore backend: one JSON document file, atomic writes."""
 
@@ -28,6 +52,10 @@ class JSONFileStore:
 
     def write(self, data: dict) -> None:
         write_json_atomic(self._path, data)
+
+    def update(self, default: dict, mutator) -> dict:
+        """Perform one atomic read-modify-write transaction."""
+        return update_json_atomic(self._path, default, mutator)
 
     @property
     def path(self) -> Path:

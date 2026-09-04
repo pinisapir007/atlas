@@ -2,7 +2,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from atlas.brain.models import Decision
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 
 
 class DecisionLog:
@@ -30,9 +30,10 @@ class DecisionLog:
         self._store.write(data)
 
     def save_decision(self, decision: Decision) -> None:
-        data = self._read()
-        data["decisions"][decision.id] = asdict(decision)
-        self._write(data)
+        def mutate(data):
+            data["decisions"][decision.id] = asdict(decision)
+
+        update_store(self._store, self._read(), mutate)
 
     def decisions(self) -> list[Decision]:
         return [Decision(**d) for d in self._read()["decisions"].values()]

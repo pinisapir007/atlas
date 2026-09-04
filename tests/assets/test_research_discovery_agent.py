@@ -261,3 +261,111 @@ def test_report_is_a_real_aggregate_scoped_to_this_agents_own_findings(tmp_path)
 
     assert report["status"] == "done"
     assert report["total_findings"] == 2
+
+
+class _FakeSearchProvider:
+    def __init__(self, name: str, url: str):
+        self.name = name
+        self._url = url
+
+    def search_url(self, query: str) -> str:
+        return self._url
+
+
+class _FallbackObserver:
+    def __init__(self, successful_observation):
+        self._successful_observation = successful_observation
+        self.calls = []
+
+    def observe(self, url, extract=None):
+        self.calls.append((url, extract))
+        if "first-search.example" in url:
+            raise BrowserUseError("first search provider failed")
+        return self._successful_observation
+
+
+def test_run_falls_back_to_second_search_provider_when_first_search_fails(tmp_path):
+    kb = _kb(tmp_path)
+
+    serp = _observation({
+        "result_1_title": "Real SaaS comparison",
+        "result_1_url": "https://example.com/saas",
+        "result_1_snippet": "real evidence",
+    })
+
+    observer = _FallbackObserver(serp)
+
+    first = _FakeSearchProvider(
+        "first",
+        "https://first-search.example/?q=test",
+    )
+    second = _FakeSearchProvider(
+        "second",
+        "https://second-search.example/?q=test",
+    )
+
+    agent = ResearchDiscoveryAgent(
+        knowledge=kb,
+        observer=observer,
+        ai_provider=_FakeAIProvider(relevant=True),
+        search_providers=[first, second],
+    )
+
+    result = agent.run(task=_task("saas"))
+
+    assert result["status"] == "done"
+    assert result["findings_created"] >= 1
+    assert observer.calls[0][0].startswith("https://first-search.example/")
+    assert observer.calls[1][0].startswith("https://second-search.example/")
+
+
+class _FakeStructuredSearchProvider:
+    name = "structured"
+
+    def search(self, query: str, max_results: int = 5):
+        return [
+            {
+                "title": "Real service business software",
+                "url": "https://example.com/service-software",
+                "snippet": "Real comparison of software tools for service businesses.",
+            }
+        ]
+
+
+class _StructuredSearchNavigationObserver:
+    """Structured search itself must not need a SERP browser page.
+    BrowserObserver is used only for the real destination-page navigation."""
+    def __init__(self):
+        self.calls = []
+
+    def observe(self, url, extract=None):
+        self.calls.append((url, extract))
+        return _observation({
+            "candidate_1": "ServiceTitan",
+            "candidate_2": "Jobber",
+        })
+
+
+def test_run_accepts_structured_search_results_without_serp_browser_scraping(tmp_path):
+    kb = _kb(tmp_path)
+    observer = _StructuredSearchNavigationObserver()
+
+    agent = ResearchDiscoveryAgent(
+        knowledge=kb,
+        observer=observer,
+        ai_provider=_FakeAIProvider(relevant=True),
+        search_providers=[_FakeStructuredSearchProvider()],
+    )
+
+    result = agent.run(task=_task("service_business"))
+
+    assert result["status"] == "done"
+    assert result["search_provider"] == "structured"
+    assert result["findings_created"] >= 1
+
+    # Browser is used only after search, to inspect the real top result.
+    assert len(observer.calls) == 1
+    assert observer.calls[0][0] == "https://example.com/service-software"
+
+    findings = kb.findings()
+    assert any(f.evidence == "https://example.com/service-software" for f in findings)

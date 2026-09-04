@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from atlas.brain.models import new_id, now
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 
 
 @dataclass
@@ -48,16 +48,18 @@ class ConversationMemory:
 
     def record_turn(self, input_line: str, response_summary: str) -> ConversationEntry:
         entry = ConversationEntry(input_line=input_line, response_summary=response_summary)
-        data = self._read()
-        data["entries"].append(
-            {
-                "id": entry.id,
-                "input_line": entry.input_line,
-                "response_summary": entry.response_summary,
-                "created_at": entry.created_at,
-            }
-        )
-        self._write(data)
+
+        def mutate(data):
+            data.setdefault("entries", []).append(
+                {
+                    "id": entry.id,
+                    "input_line": entry.input_line,
+                    "response_summary": entry.response_summary,
+                    "created_at": entry.created_at,
+                }
+            )
+
+        update_store(self._store, {"entries": []}, mutate)
         return entry
 
     def entries(self) -> list[ConversationEntry]:

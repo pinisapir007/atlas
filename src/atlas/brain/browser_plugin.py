@@ -26,6 +26,7 @@ class BrowserPlugin:
     same pattern every other real provider in this codebase uses."""
 
     name = "browser"
+    raw_text_grounded = True
 
     def __init__(self, observer: BrowserObserver | None = None, allowlist: BrowserAllowlist | None = None):
         self._observer = observer if observer is not None else get_browser_observer("browser_use")

@@ -121,3 +121,41 @@ def test_a_real_provider_failure_is_wrapped_loudly(tmp_path):
 
 def test_name_is_video():
     assert VideoPlugin(allowlist=_allowlist()).name == "video"
+
+
+def test_observe_evidence_returns_canonical_video_media_evidence(tmp_path):
+    video = tmp_path / "clip.mp4"
+    video_bytes = b"real-fake-mp4-bytes"
+    video.write_bytes(video_bytes)
+
+    allowlist = _allowlist()
+    allowlist.approve_folder(str(tmp_path))
+
+    fake_provider = _FakeGeminiProvider(
+        structured={
+            "visual": "A product package is shown on screen.",
+            "audible": "One speaker is talking.",
+            "transcribed_text": "Atlas video qualification.",
+            "confidence": "HIGH",
+        }
+    )
+
+    plugin = VideoPlugin(
+        allowlist=allowlist,
+        gemini_provider=fake_provider,
+    )
+
+    evidence = plugin.observe_evidence(str(video))
+
+    assert len(evidence) == 1
+    item = evidence[0]
+
+    assert item.source_ref == str(video.resolve())
+    assert item.modality == "video"
+    assert item.locator == "video:whole"
+    assert item.visual == "A product package is shown on screen."
+    assert item.audible == "One speaker is talking."
+    assert item.transcribed_text == "Atlas video qualification."
+    assert item.confidence == "HIGH"
+    assert item.observed_at
+    assert len(item.content_hash) == 64

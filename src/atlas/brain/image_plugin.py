@@ -16,10 +16,12 @@ same real risk (autonomous local file access) that allowlist exists
 to gate, and mirrors DocumentPlugin's structure closely by design.
 """
 
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from atlas.brain.resource_allowlist import ResourceAllowlist
-from atlas.integrations.base import PageObservation
+from atlas.integrations.base import MediaEvidence, PageObservation
 from atlas.integrations.gemini_provider import GeminiProvider, GeminiProviderError
 
 SUPPORTED_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
@@ -89,6 +91,64 @@ class ImagePlugin:
             text_content=description,
             structured_data=structured_data,
         )
+
+    def observe_evidence(self, source_ref: str) -> list[MediaEvidence]:
+        """Return evidence-honest observations from one real image.
+
+        The image bytes are the real source identity. Gemini's visual/OCR
+        interpretation is kept as sensor observation data and is never
+        treated as a character-for-character grounded text excerpt.
+        """
+        image_bytes, path = self._read_approved_image(source_ref)
+        media_type = _MEDIA_TYPES[path.suffix.lower()]
+
+        fields = {
+            "visual": (
+                "Describe only objects, layout, people, products, charts, "
+                "or other content directly visible in this real image."
+            ),
+            "transcribed_text": (
+                "Transcribe literal text visible in the image as accurately "
+                "as possible. Use an empty string if no text is visible."
+            ),
+            "confidence": (
+                "HIGH, MEDIUM, or LOW confidence that the observation is "
+                "directly supported by the image."
+            ),
+        }
+
+        try:
+            raw = self._gemini.understand_image_structured(
+                image_bytes,
+                "Inspect this real image as evidence. Do not infer facts that are not visibly supported.",
+                fields,
+                media_type=media_type,
+            )
+        except GeminiProviderError as exc:
+            raise ImagePluginError(str(exc)) from exc
+
+        visual = raw.get("visual", "").strip()
+        transcribed = raw.get("transcribed_text", "").strip()
+        confidence = raw.get("confidence", "").strip().upper()
+
+        if confidence not in {"HIGH", "MEDIUM", "LOW"}:
+            confidence = "UNKNOWN"
+
+        if not visual and not transcribed:
+            return []
+
+        return [
+            MediaEvidence(
+                source_ref=str(path.resolve()),
+                modality="image",
+                locator="image:whole",
+                visual=visual,
+                transcribed_text=transcribed,
+                confidence=confidence,
+                observed_at=datetime.now(timezone.utc).isoformat(),
+                content_hash=hashlib.sha256(image_bytes).hexdigest(),
+            )
+        ]
 
     def _read_approved_image(self, source_ref: str) -> tuple[bytes, Path]:
         if not self._allowlist.is_approved(source_ref):

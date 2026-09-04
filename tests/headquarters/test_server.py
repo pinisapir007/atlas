@@ -410,3 +410,41 @@ def test_api_conversations_reflects_real_recorded_turns(tmp_path):
     assert response.status_code == 200
     assert len(data["entries"]) == 1
     assert data["entries"][0]["input_line"] == "hello ATLAS"
+
+
+
+def test_health_returns_200_when_core_state_is_readable(tmp_path):
+    brain = _isolated_brain(tmp_path)
+    brain.memory.save_goal(
+        Goal(description="health qualification goal", status="active")
+    )
+
+    client = TestClient(create_app(brain))
+    response = client.get("/health")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["status"] == "ok"
+    assert data["service"] == "atlas-headquarters"
+    assert data["checks"]["memory"]["status"] == "ok"
+    assert data["checks"]["memory"]["goals_readable"] == 1
+    assert data["checks"]["ledger"]["status"] == "ok"
+
+
+def test_health_returns_503_when_core_state_cannot_be_read(tmp_path, monkeypatch):
+    brain = _isolated_brain(tmp_path)
+
+    def broken_goals():
+        raise OSError("simulated unreadable state")
+
+    monkeypatch.setattr(brain.memory, "goals", broken_goals)
+
+    client = TestClient(create_app(brain))
+    response = client.get("/health")
+    data = response.json()
+
+    assert response.status_code == 503
+    assert data["status"] == "unhealthy"
+    assert data["checks"]["memory"]["status"] == "error"
+    assert data["checks"]["memory"]["error_type"] == "OSError"
+    assert data["checks"]["ledger"]["status"] == "ok"

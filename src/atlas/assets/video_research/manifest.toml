@@ -1,0 +1,10 @@
+id = "video_research"
+name = "Video Research"
+kind = "operational_agent"
+description = "Bounded read-only analysis of one already-known public YouTube source into real timestamped audio+visual Findings. It does not search for videos or decide research priorities."
+owner = "atlas"
+tags = ["research", "video", "youtube", "evidence"]
+entrypoint = "atlas.assets.video_research.agent:VideoResearchAgent"
+
+[config]
+categories = ["video_research"]

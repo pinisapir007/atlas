@@ -1,4 +1,5 @@
 from atlas.assets.editorial_review.checks import check_compliance
+from atlas.assets.affiliate_department.models import provider_tracking_link
 
 # The Gateway is "the single controlled entry point" — it must not just
 # trust upstream stages, it re-verifies independently before anything is
@@ -57,7 +58,11 @@ def build_publish_package(opportunity) -> tuple[dict | None, str]:
         "hashtags": hashtags,
         "affiliate_disclosure": disclosure_cta,
         "media_references": [opportunity.creative_assets["reference"]],
-        "tracking_link": opportunity.real_affiliate_link,
+        "tracking_link": provider_tracking_link(
+            opportunity.provider,
+            opportunity.real_affiliate_link,
+            opportunity.goal_id or "",
+        ),
         "opportunity_id": opportunity.id,
         "goal_id": opportunity.goal_id,
     }

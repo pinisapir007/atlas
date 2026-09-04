@@ -222,3 +222,152 @@ def test_call_raises_clearly_on_malformed_json(monkeypatch):
     with patch("urllib.request.urlopen", return_value=_BadResponse(200, {})):
         with pytest.raises(Digistore24APIError, match="non-JSON body"):
             Digistore24Provider().fetch_recent_sales()
+
+
+def test_add_campaign_key_to_real_promocode_affiliate_link():
+    from atlas.integrations.digistore24 import add_campaign_key
+
+    result = add_campaign_key(
+        "https://KetoDNA.app/d#aff=2026mayabotd1b5",
+        "goal-e3ec71a1b9f3",
+    )
+
+    assert result == (
+        "https://KetoDNA.app/d"
+        "#aff=2026mayabotd1b5&cam=goal-e3ec71a1b9f3"
+    )
+
+
+def test_add_campaign_key_to_digistore24_promolink():
+    from atlas.integrations.digistore24 import add_campaign_key
+
+    result = add_campaign_key(
+        "https://www.digistore24.com/redir/123456/myaffid/",
+        "goal-abc123",
+    )
+
+    assert result == (
+        "https://www.digistore24.com/redir/"
+        "123456/myaffid/goal-abc123/"
+    )
+
+
+def test_add_campaign_key_replaces_existing_promocode_campaign_key():
+    from atlas.integrations.digistore24 import add_campaign_key
+
+    first = add_campaign_key(
+        "https://KetoDNA.app/d#aff=2026mayabotd1b5&cam=old-key",
+        "goal-new",
+    )
+    second = add_campaign_key(first, "goal-new")
+
+    assert first == "https://KetoDNA.app/d#aff=2026mayabotd1b5&cam=goal-new"
+    assert second == first
+
+
+def test_add_campaign_key_leaves_unknown_url_shape_unchanged():
+    from atlas.integrations.digistore24 import add_campaign_key
+
+    url = "https://real-network.example/track/abc123"
+
+    assert add_campaign_key(url, "goal-1") == url
+
+
+def test_add_campaign_key_rejects_invalid_campaign_key():
+    import pytest
+    from atlas.integrations.digistore24 import add_campaign_key
+
+    with pytest.raises(ValueError, match="campaign_key"):
+        add_campaign_key(
+            "https://KetoDNA.app/d#aff=affiliate",
+            "goal with spaces",
+        )
+
+
+def test_fetch_recent_commissions_reads_documented_items(monkeypatch):
+    from atlas.integrations.digistore24 import Digistore24Provider
+
+    monkeypatch.setenv("DIGISTORE24_API_KEY", "test-key")
+    provider = Digistore24Provider()
+
+    monkeypatch.setattr(
+        provider,
+        "_call",
+        lambda method, params=None: {
+            "api_version": "1.2",
+            "result": "success",
+            "data": {
+                "page_no": 1,
+                "page_size": 0,
+                "item_count": 1,
+                "page_count": 1,
+                "items": [
+                    {
+                        "id": 123,
+                        "amount": 12.34,
+                        "currency": "EUR",
+                        "transaction_id": 987,
+                        "purchase_id": "PUR-1",
+                    }
+                ],
+            },
+        },
+    )
+
+    items = provider.fetch_recent_commissions()
+
+    assert items[0]["id"] == 123
+    assert items[0]["amount"] == 12.34
+    assert items[0]["purchase_id"] == "PUR-1"
+
+
+def test_fetch_recent_transactions_reads_documented_shape(monkeypatch):
+    from atlas.integrations.digistore24 import Digistore24Provider
+
+    monkeypatch.setenv("DIGISTORE24_API_KEY", "test-key")
+    provider = Digistore24Provider()
+
+    monkeypatch.setattr(
+        provider,
+        "_call",
+        lambda method, params=None: {
+            "data": {
+                "transaction_list": [
+                    {"id": 987, "transaction_type": "payment"}
+                ]
+            }
+        },
+    )
+
+    items = provider.fetch_recent_transactions()
+
+    assert items == [
+        {"id": 987, "transaction_type": "payment"}
+    ]
+
+
+def test_get_purchase_tracking_reads_campaign_key(monkeypatch):
+    from atlas.integrations.digistore24 import Digistore24Provider
+
+    monkeypatch.setenv("DIGISTORE24_API_KEY", "test-key")
+    provider = Digistore24Provider()
+
+    calls = []
+
+    def fake_call(method, params=None):
+        calls.append((method, params))
+        return {
+            "data": {
+                "campaign_key": "goal-abc123",
+                "click_id": "click-1",
+            }
+        }
+
+    monkeypatch.setattr(provider, "_call", fake_call)
+
+    data = provider.get_purchase_tracking("PUR-1")
+
+    assert data["campaign_key"] == "goal-abc123"
+    assert calls == [
+        ("getPurchaseTracking", {"purchase_id": "PUR-1"})
+    ]

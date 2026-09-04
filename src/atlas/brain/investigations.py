@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from atlas.brain.models import Investigation
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 
 
 class InvestigationStore:
@@ -24,9 +24,10 @@ class InvestigationStore:
         self._store.write(data)
 
     def save_investigation(self, investigation: Investigation) -> None:
-        data = self._read()
-        data["investigations"][investigation.id] = asdict(investigation)
-        self._write(data)
+        def mutate(data):
+            data["investigations"][investigation.id] = asdict(investigation)
+
+        update_store(self._store, self._read(), mutate)
 
     def investigations(self) -> list[Investigation]:
         return [Investigation(**i) for i in self._read()["investigations"].values()]

@@ -52,10 +52,31 @@ class BrainMemory:
     def _write(self, data: dict) -> None:
         self._store.write(data)
 
-    def save_goal(self, goal: Goal) -> None:
+    def _update(self, mutator) -> dict:
+        """Perform one read-modify-write transaction when supported.
+
+        Real JSONFileStore provides an inter-process-safe update().
+        Existing test/future stores that only implement read()/write()
+        keep working through the compatibility fallback.
+        """
+        def apply(data: dict):
+            data.setdefault("strategic_objectives", {})
+            result = mutator(data)
+            return data if result is None else result
+
+        update = getattr(self._store, "update", None)
+        if callable(update):
+            return update(_EMPTY, apply)
+
         data = self._read()
-        data["goals"][goal.id] = asdict(goal)
-        self._write(data)
+        updated = apply(data)
+        self._write(updated)
+        return updated
+
+    def save_goal(self, goal: Goal) -> None:
+        def mutate(data):
+            data["goals"][goal.id] = asdict(goal)
+        self._update(mutate)
 
     def goals(self) -> list[Goal]:
         return [Goal(**g) for g in self._read()["goals"].values()]
@@ -67,9 +88,9 @@ class BrainMemory:
         return Goal(**raw)
 
     def save_task(self, task: Task) -> None:
-        data = self._read()
-        data["tasks"][task.id] = asdict(task)
-        self._write(data)
+        def mutate(data):
+            data["tasks"][task.id] = asdict(task)
+        self._update(mutate)
 
     def tasks(self) -> list[Task]:
         return [Task(**t) for t in self._read()["tasks"].values()]
@@ -81,9 +102,9 @@ class BrainMemory:
         return Task(**raw)
 
     def save_proposal(self, proposal: Proposal) -> None:
-        data = self._read()
-        data["proposals"][proposal.id] = asdict(proposal)
-        self._write(data)
+        def mutate(data):
+            data["proposals"][proposal.id] = asdict(proposal)
+        self._update(mutate)
 
     def proposals(self) -> list[Proposal]:
         return [Proposal(**p) for p in self._read()["proposals"].values()]
@@ -95,9 +116,13 @@ class BrainMemory:
         return Proposal(**raw)
 
     def record_kpi(self, name: str, value: float, at: str) -> None:
-        data = self._read()
-        data["kpis"].setdefault(name, []).append({"at": at, "value": value})
-        self._write(data)
+        def mutate(data):
+            data["kpis"].setdefault(name, []).append({"at": at, "value": value})
+        self._update(mutate)
+
+    def kpi_snapshot(self) -> dict[str, list[dict]]:
+        """Return all KPI histories from one BrainMemory read."""
+        return self._read()["kpis"]
 
     def kpi_history(self, name: str) -> list[dict]:
         return self._read()["kpis"].get(name, [])
@@ -106,9 +131,9 @@ class BrainMemory:
         return sorted(self._read()["kpis"])
 
     def append_log(self, entry: dict) -> None:
-        data = self._read()
-        data["log"].append(entry)
-        self._write(data)
+        def mutate(data):
+            data["log"].append(entry)
+        self._update(mutate)
 
     def log(self) -> list[dict]:
         return self._read()["log"]
@@ -126,9 +151,9 @@ class BrainMemory:
             raise ValueError(
                 f"cash_flow_weight + strategic_value_weight must sum to 1.0, got {total}"
             )
-        data = self._read()
-        data["strategic_objectives"][objective.id] = asdict(objective)
-        self._write(data)
+        def mutate(data):
+            data["strategic_objectives"][objective.id] = asdict(objective)
+        self._update(mutate)
 
     def strategic_objectives(self) -> list[StrategicObjective]:
         return [StrategicObjective(**o) for o in self._read()["strategic_objectives"].values()]

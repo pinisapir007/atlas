@@ -842,3 +842,122 @@ def test_milestone3_committed_opportunity_reaches_real_campaign_via_business_pla
     assert len(real_campaigns) == 1
     assert real_campaigns[0].product_offer == "KetoDNA"
     assert real_campaigns[0].status == "active"
+
+
+def test_default_registry_wires_video_research_to_this_brains_own_knowledge(tmp_path):
+    """Video Research must write into the CEOBrain's ONE shared KnowledgeBase,
+    never a silently-created default .atlas/knowledge.json of its own."""
+    kb = KnowledgeBase(tmp_path / "knowledge.json")
+    brain = CEOBrain(
+        memory=BrainMemory(tmp_path / "brain.json"),
+        knowledge=kb,
+        decisions=DecisionLog(tmp_path / "decisions.json"),
+        ledger=Ledger(tmp_path / "ledger.json"),
+        campaigns=CampaignRegistry(tmp_path / ".atlas" / "campaigns.json"),
+        influencers=InfluencerRegistry(tmp_path / ".atlas" / "influencers.json"),
+        execution_plans=ExecutionPlanRegistry(
+            tmp_path / ".atlas" / "execution_plans.json"
+        ),
+        affiliate_store=AffiliateStore(
+            tmp_path / ".atlas" / "affiliate_intelligence.json"
+        ),
+    )
+
+    video_instance = brain.registry._instance("video_research")
+
+    assert video_instance._knowledge is kb
+    assert video_instance._knowledge is brain.knowledge
+
+
+def test_tick_calls_video_research_bridge_with_this_brains_shared_state(
+    tmp_path,
+    monkeypatch,
+):
+    """Production wiring qualification: CEOBrain.tick really reaches the
+    bridge with its own Memory/Knowledge/KPI objects. The bridge itself is
+    replaced here so this test can never perform a YouTube/Gemini call."""
+    import atlas.brain.ceo as ceo_module
+
+    calls = []
+
+    def fake_advance_video_research(memory, knowledge, kpis):
+        calls.append((memory, knowledge, kpis))
+        return []
+
+    monkeypatch.setattr(
+        ceo_module,
+        "advance_video_research",
+        fake_advance_video_research,
+    )
+
+    brain = _brain(tmp_path)
+    brain.tick()
+
+    assert len(calls) == 1
+    memory, knowledge, kpis = calls[0]
+    assert memory is brain.memory
+    assert knowledge is brain.knowledge
+    assert kpis is brain.kpis
+
+
+
+def test_tick_wires_layer2_with_start_of_tick_finding_baseline(
+    tmp_path,
+    monkeypatch,
+):
+    """Stage 7 Layer-2 production wiring qualification.
+
+    The real bridge is replaced so this test can never spend an AI call.
+    Proves CEOBrain snapshots pre-existing Findings before tick work and
+    passes its own shared Memory/Knowledge objects into Layer 2.
+    """
+    import atlas.brain.ceo as ceo_module
+
+    monkeypatch.setattr(
+        ceo_module,
+        "pattern_hypothesis_enabled",
+        lambda: True,
+    )
+
+    calls = []
+
+    def fake_advance_pattern_hypotheses(
+        memory,
+        knowledge,
+        *,
+        baseline_finding_ids=None,
+        ai_provider=None,
+    ):
+        calls.append(
+            (
+                memory,
+                knowledge,
+                baseline_finding_ids,
+            )
+        )
+        return []
+
+    monkeypatch.setattr(
+        ceo_module,
+        "advance_pattern_hypotheses",
+        fake_advance_pattern_hypotheses,
+    )
+
+    brain = _brain(tmp_path)
+
+    existing = Finding(
+        source="research",
+        category="affiliate",
+        description="pre-existing evidence",
+        evidence="https://example.com/preexisting",
+        evidence_role="direct_assertion",
+    )
+    brain.knowledge.save_finding(existing)
+
+    brain.tick()
+
+    assert len(calls) == 1
+    memory, knowledge, baseline_ids = calls[0]
+    assert memory is brain.memory
+    assert knowledge is brain.knowledge
+    assert baseline_ids == {existing.id}

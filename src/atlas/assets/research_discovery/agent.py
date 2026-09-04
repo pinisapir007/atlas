@@ -86,8 +86,10 @@ from atlas.brain.evidence_role_classification import classify_evidence_role
 from atlas.brain.evidence_validation import assess_observation_quality
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.models import Finding
-from atlas.integrations.base import AIProvider
+from atlas.integrations.base import AIProvider, SearchProvider, VideoResearchProvider
 from atlas.integrations.browser_use_observer import BrowserUseError, BrowserUseObserver
+from atlas.integrations.search_provider_registry import search_providers_in_order
+from atlas.integrations.video_research_provider import GeminiVideoResearchProvider
 
 SEARCH_URL_TEMPLATE = "https://duckduckgo.com/html/?q={query}"
 RESULT_COUNT = 5
@@ -153,10 +155,18 @@ class ResearchDiscoveryAgent:
         knowledge: KnowledgeBase | None = None,
         observer: BrowserUseObserver | None = None,
         ai_provider: AIProvider | None = None,
+        search_providers: list[SearchProvider] | None = None,
+        video_provider: VideoResearchProvider | None = None,
     ):
         self._knowledge = knowledge if knowledge is not None else KnowledgeBase()
         self._observer = observer if observer is not None else BrowserUseObserver()
         self._ai_provider = ai_provider  # None -> assess_observation_quality()'s own real default
+        self._search_providers = list(search_providers) if search_providers is not None else search_providers_in_order()
+        self._video_provider = (
+            video_provider
+            if video_provider is not None
+            else GeminiVideoResearchProvider()
+        )
 
     def run(self, task=None, **kwargs) -> dict:
         # Delegator's unmatched-fallback path can hand this agent ANY
@@ -188,32 +198,172 @@ class ResearchDiscoveryAgent:
         escalation passes its own source name instead, so every Finding
         stays honestly attributed to the real agent that produced it,
         never silently mislabeled as this one."""
-        url = SEARCH_URL_TEMPLATE.format(query=quote(query))
+        failures: list[str] = []
+
+        for search_provider in self._search_providers:
+            structured_search = getattr(search_provider, "search", None)
+
+            if callable(structured_search):
+                try:
+                    results = structured_search(query, max_results=RESULT_COUNT)
+                except Exception as exc:
+                    failures.append(f"{search_provider.name}: structured search failed: {exc}")
+                    continue
+
+                if not results:
+                    failures.append(f"{search_provider.name}: structured search returned no real results")
+                    continue
+
+                structured: dict[str, str] = {}
+                for i, result in enumerate(results[:RESULT_COUNT], start=1):
+                    structured[f"result_{i}_title"] = str(result.get("title", "")).strip()
+                    structured[f"result_{i}_url"] = str(result.get("url", "")).strip()
+                    structured[f"result_{i}_snippet"] = str(result.get("snippet", "")).strip()
+
+                findings_created = self._save_findings(category, structured, source=source)
+                findings_created += self._discover_subjects(category, structured, source=source)
+                video_created, video_research = self._research_youtube_evidence(
+                    category,
+                    structured,
+                    source=source,
+                )
+                findings_created += video_created
+
+                result = {
+                    "status": "done",
+                    "category": category,
+                    "findings_created": findings_created,
+                    "search_provider": search_provider.name,
+                }
+                if video_research is not None:
+                    result["video_research"] = video_research
+                return result
+
+            url = search_provider.search_url(query)
+
+            try:
+                observation = self._observer.observe(url, extract=_extract_fields())
+            except BrowserUseError as exc:
+                failures.append(f"{search_provider.name}: real search failed: {exc}")
+                continue
+
+            task_description = f"real, current pages about specific products/tools worth selling in the '{category}' category"
+            quality = assess_observation_quality(observation, task_description, ai_provider=self._ai_provider)
+            if not quality.passed:
+                failures.append(
+                    f"{search_provider.name}: real search results failed evidence quality: {quality.reason}"
+                )
+                continue
+
+            findings_created = self._save_findings(category, observation.structured_data, source=source)
+            findings_created += self._discover_subjects(category, observation.structured_data, source=source)
+            video_created, video_research = self._research_youtube_evidence(
+                category,
+                observation.structured_data,
+                source=source,
+            )
+            findings_created += video_created
+
+            result = {
+                "status": "done",
+                "category": category,
+                "findings_created": findings_created,
+                "search_provider": search_provider.name,
+            }
+            if video_research is not None:
+                result["video_research"] = video_research
+            return result
+
+        return {
+            "status": "failed",
+            "category": category,
+            "findings_created": 0,
+            "reason": "all search providers failed: " + " | ".join(failures),
+        }
+
+    def _research_youtube_evidence(
+        self,
+        category: str,
+        structured: dict,
+        source: str = SOURCE_NAME,
+    ) -> tuple[int, dict | None]:
+        """Analyze at most one real YouTube result per bounded step.
+
+        Search/discovery remains the orchestrator.  The video provider is
+        only a read-only sensor for a URL the research step already found.
+        A real video failure never fabricates evidence and never destroys
+        otherwise-valid web research.
+        """
+        youtube_url = ""
+
+        for i in range(1, RESULT_COUNT + 1):
+            raw_url = str(
+                structured.get(f"result_{i}_url", "")
+            ).strip()
+            if not raw_url:
+                continue
+
+            normalized = _normalize_url(raw_url)
+            parsed = urlparse(normalized)
+            host = (parsed.hostname or "").lower()
+
+            if (
+                parsed.scheme == "https"
+                and (
+                    host == "youtu.be"
+                    or host == "youtube.com"
+                    or host.endswith(".youtube.com")
+                )
+            ):
+                youtube_url = normalized
+                break
+
+        if not youtube_url:
+            return 0, None
 
         try:
-            observation = self._observer.observe(url, extract=_extract_fields())
-        except BrowserUseError as exc:
-            return {"status": "failed", "category": category, "findings_created": 0, "reason": f"real search failed: {exc}"}
-
-        # Judges the SERP page itself (titles/snippets of pages ABOUT
-        # candidates) -- not whether it already names specific
-        # candidates. Real candidates live one level deeper, on the
-        # destination page _discover_subjects() navigates into below;
-        # demanding them here caused a real, live, spurious failure
-        # (the SERP is legitimately just a list of article titles).
-        task_description = f"real, current pages about specific products/tools worth selling in the '{category}' category"
-        quality = assess_observation_quality(observation, task_description, ai_provider=self._ai_provider)
-        if not quality.passed:
-            return {
+            observations = self._video_provider.analyze_youtube(
+                youtube_url,
+                max_observations=3,
+            )
+        except Exception as exc:
+            return 0, {
                 "status": "failed",
-                "category": category,
-                "findings_created": 0,
-                "reason": f"real search results failed evidence quality: {quality.reason}",
+                "provider": self._video_provider.name,
+                "url": youtube_url,
+                "reason": str(exc)[:500],
             }
 
-        findings_created = self._save_findings(category, observation.structured_data, source=source)
-        findings_created += self._discover_subjects(category, observation.structured_data, source=source)
-        return {"status": "done", "category": category, "findings_created": findings_created}
+        created = 0
+
+        for observation in observations:
+            description = (
+                f"[VIDEO {observation.timestamp}] "
+                f"spoken={observation.spoken or '[none]'} | "
+                f"visual={observation.visual or '[none]'} | "
+                f"evidence_type={observation.evidence_type} | "
+                f"confidence={observation.confidence}"
+            )
+
+            self._knowledge.save_finding(
+                Finding(
+                    source=source,
+                    category=category,
+                    description=description,
+                    evidence=(
+                        f"{observation.source_url} "
+                        f"@ {observation.timestamp}"
+                    ),
+                )
+            )
+            created += 1
+
+        return created, {
+            "status": "done",
+            "provider": self._video_provider.name,
+            "url": youtube_url,
+            "findings_created": created,
+        }
 
     def report(self) -> dict:
         # Aggregate, not task-specific -- Reportable.report() takes no

@@ -48,7 +48,11 @@ def build_console_view(brain: CEOBrain) -> dict:
         except Exception as exc:  # a misbehaving department must never break the console
             departments[record.id] = {"status": "error", "detail": str(exc)}
 
-    kpis = {name: brain.kpis.latest(name) for name in brain.kpis.names()}
+    kpi_snapshot = brain.kpis.snapshot()
+    kpis = {
+        name: (history[-1]["value"] if history else None)
+        for name, history in sorted(kpi_snapshot.items())
+    }
 
     return {
         "goals": [
@@ -65,7 +69,7 @@ def build_console_view(brain: CEOBrain) -> dict:
         "blocked": blocked,
         "departments": departments,
         "kpis": kpis,
-        "cash_flow": goal_cash_flow(goals, brain.kpis),
+        "cash_flow": goal_cash_flow(goals, brain.kpis, kpi_snapshot),
     }
 
 
@@ -76,8 +80,8 @@ def find_stale_kpis(brain: CEOBrain, threshold_hours: float = DEFAULT_STALE_KPI_
     same KPIRegistry history every other command already reads."""
     stale: list[tuple[str, float]] = []
     now = datetime.now(timezone.utc)
-    for name in brain.kpis.names():
-        history = brain.kpis.history(name)
+    kpi_snapshot = brain.kpis.snapshot()
+    for name, history in sorted(kpi_snapshot.items()):
         if not history:
             continue
         last_at = datetime.fromisoformat(history[-1]["at"])

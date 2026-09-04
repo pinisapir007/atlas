@@ -1,7 +1,7 @@
 from dataclasses import asdict
 from pathlib import Path
 
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 from atlas.hands.models import HandsRequest
 
 
@@ -27,9 +27,10 @@ class HandsRequestRegistry:
         self._store.write(data)
 
     def save_request(self, request: HandsRequest) -> None:
-        data = self._read()
-        data["requests"][request.id] = asdict(request)
-        self._write(data)
+        def mutate(data):
+            data["requests"][request.id] = asdict(request)
+
+        update_store(self._store, self._read(), mutate)
 
     def requests(self) -> list[HandsRequest]:
         return [HandsRequest(**r) for r in self._read()["requests"].values()]

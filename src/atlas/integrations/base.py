@@ -255,6 +255,21 @@ class Intelligence:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class GroundedTextSegment:
+    """A real source-native text segment with a real locator prefix.
+
+    Examples:
+      PDF page -> locator_prefix="page:18"
+      future transcript section -> locator_prefix="section:pricing"
+
+    `text` is real extracted source text, never an AI summary.
+    """
+
+    text: str
+    locator_prefix: str = ""
+
+
 @dataclass
 class PageObservation:
     """Real, raw content read from one real page visit (2026-08-06,
@@ -275,6 +290,31 @@ class PageObservation:
     screenshot_path: str = ""
     fetched_at: str = ""
     error: str | None = None
+    # Optional source-native segmentation preserving real structure
+    # such as PDF pages. Empty means text_content itself is the grounded
+    # text unit. Purely additive for all existing observers/plugins.
+    text_segments: list[GroundedTextSegment] = field(default_factory=list)
+
+
+@runtime_checkable
+class SearchProvider(Protocol):
+    """A provider-agnostic web-search source for ATLAS research.
+
+    A SearchProvider only knows how to turn a real query into a real
+    search-results URL. Reading/extracting that page remains the job of
+    BrowserObserver, so search-source choice and browser observation stay
+    separate capabilities.
+
+    Multiple implementations may be registered so failure, blocking, or
+    CAPTCHA at one search source does not make it a single point of
+    failure for ATLAS research.
+    """
+
+    name: str
+
+    def search_url(self, query: str) -> str:
+        """Return the real search-results URL for `query`."""
+        ...
 
 
 @runtime_checkable
@@ -471,4 +511,62 @@ class IntelligenceProvider(Protocol):
         KnowledgeBase with zero Findings yet) — genuinely different from
         None, the same fail-closed distinction every other provider
         Protocol in this codebase already makes."""
+        ...
+
+
+@dataclass(frozen=True)
+class MediaEvidence:
+    """One evidence-honest observation from real non-text media.
+
+    This is a sensor observation, NOT character-for-character grounded
+    source text. Therefore fields such as `transcribed_text`, `audible`,
+    and `visual` must never automatically become Finding.evidence_excerpt.
+
+    `source_ref` identifies the real media source.
+    `modality` is image/audio/video.
+    `locator` identifies where the observation belongs in that source:
+    e.g. image:whole or timestamp:00:18.
+    """
+
+    source_ref: str
+    modality: str
+    locator: str
+    visual: str = ""
+    audible: str = ""
+    transcribed_text: str = ""
+    confidence: str = ""
+    observed_at: str = ""
+    content_hash: str = ""
+
+
+@dataclass(frozen=True)
+class VideoEvidence:
+    """One real timestamped observation from a real video source.
+
+    `spoken` and `visual` remain separate so later reasoning can
+    distinguish what the source actually said from what was actually
+    visible.  `source_url` + `timestamp` preserve the evidence pointer
+    needed for later verification.
+    """
+
+    source_url: str
+    timestamp: str
+    spoken: str = ""
+    visual: str = ""
+    evidence_type: str = ""
+    confidence: str = ""
+
+
+@runtime_checkable
+class VideoResearchProvider(Protocol):
+    """Read-only understanding of an already-known public video source."""
+
+    name: str
+
+    def analyze_youtube(
+        self,
+        youtube_url: str,
+        max_observations: int = 3,
+    ) -> list[VideoEvidence]:
+        """Return real timestamped evidence from one public YouTube URL."""
         ...

@@ -81,3 +81,98 @@ def test_report_is_computed_fresh_not_cached_across_instances(tmp_path):
     # in-memory data from agent_a.
     agent_b = CampaignExecutionAgent(campaigns=registry)
     assert agent_b.report()["active_campaigns"] == [campaign.id]
+
+
+class _Step3FakeStore:
+    def __init__(self):
+        self._data = None
+
+    def read(self):
+        return self._data
+
+    def write(self, data):
+        self._data = data
+
+
+def test_step3_approved_campaign_with_destination_creates_real_hands_request(tmp_path):
+    from atlas.brain.memory import BrainMemory
+    from atlas.hands.registry import HandsRequestRegistry
+
+    registry = _registry(tmp_path)
+    campaign = Campaign(
+        business_objective="grow affiliate revenue",
+        product_offer="KetoDNA",
+        goal_id="goal-step3",
+        destination_url="https://example.com",
+    )
+    registry.save_campaign(campaign)
+
+    memory = BrainMemory(store=_Step3FakeStore())
+    hands_requests = HandsRequestRegistry(store=_Step3FakeStore())
+    agent = CampaignExecutionAgent(
+        campaigns=registry,
+        memory=memory,
+        hands_requests=hands_requests,
+    )
+
+    result = agent.run(
+        task=Task(
+            goal_id="goal-step3",
+            description="Founder approved campaign execution",
+        )
+    )
+
+    assert result["status"] == "done"
+    assert result["hands_request_id"]
+    assert result["hands_task_id"]
+    assert "published" not in result["next_step"].lower()
+
+    requests = hands_requests.requests()
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.id == result["hands_request_id"]
+    assert request.reversible is True
+    assert request.steps == [
+        {"kind": "navigate", "params": {"url": "https://example.com"}},
+        {"kind": "describe_page", "params": {}},
+    ]
+
+    tasks = memory.tasks()
+    assert len(tasks) == 1
+    assert tasks[0].id == request.task_id
+    assert tasks[0].category == "hands_execute"
+    assert tasks[0].source_opportunity_id == request.id
+    assert tasks[0].reversible is True
+
+
+def test_step3_campaign_hands_bridge_is_idempotent(tmp_path):
+    from atlas.brain.memory import BrainMemory
+    from atlas.hands.registry import HandsRequestRegistry
+
+    registry = _registry(tmp_path)
+    campaign = Campaign(
+        business_objective="grow affiliate revenue",
+        product_offer="KetoDNA",
+        goal_id="goal-step3-idempotent",
+        destination_url="https://example.com",
+    )
+    registry.save_campaign(campaign)
+
+    memory = BrainMemory(store=_Step3FakeStore())
+    hands_requests = HandsRequestRegistry(store=_Step3FakeStore())
+    agent = CampaignExecutionAgent(
+        campaigns=registry,
+        memory=memory,
+        hands_requests=hands_requests,
+    )
+    task = Task(
+        goal_id="goal-step3-idempotent",
+        description="Founder approved campaign execution",
+    )
+
+    first = agent.run(task=task)
+    second = agent.run(task=task)
+
+    assert first["hands_request_id"] == second["hands_request_id"]
+    assert len(hands_requests.requests()) == 1
+    assert len(memory.tasks()) == 1

@@ -67,38 +67,95 @@ _TEMPLATE_PATH = Path(__file__).parent / "templates" / "index.html"
 # invent -- the Prime Directive (ATLAS_CONSTITUTION.md Article III)
 # applies to this conversational surface exactly as it does everywhere
 # else in this codebase, not just to Findings/Decisions.
-_ATLAS_PERSONA_PROMPT = (
-    "You are ATLAS, the autonomous AI CEO of this real company. You are "
-    "speaking directly with the founder, in his office. Reply in the same "
-    "language he used. Speak in first person, as a real CEO would -- "
-    "confident but honest, and never invent a fact, number, goal, or "
-    "approval that isn't in your real state below. If something isn't "
-    "there, say so plainly instead of guessing. Keep the reply "
-    "conversational and concise -- a few real sentences, not a report "
-    "dump.\n\n"
-    "Your real current state:\n{context}\n\n"
-    "The founder just said: \"{message}\"\n\n"
-    "Reply as ATLAS, directly to him:"
-)
+_ATLAS_PERSONA_PROMPT = """You are ATLAS, the autonomous AI CEO of this real company.
+You are speaking directly with the founder in one continuous conversation.
+
+Reply in the same language the founder used.
+The founder's latest message is the PRIMARY instruction.
+Background context is supporting information only and must never override
+what he just asked.
+
+If he asks for a short or exact answer, obey exactly.
+Literal speech rule: when the founder says "תגיד X" or "say X",
+reply with exactly X and nothing before or after it.
+Do not count, continue a sequence, paraphrase, or infer what comes next.
+If he says "only", do not add anything else.
+Do not volunteer company status, tasks, blockers, approvals or a briefing
+unless his current message asks for them.
+Be conversational and concise by default.
+Never invent facts; if required information is unavailable, say so plainly.
+
+Relevant context for this turn:
+{context}
+
+The founder just said:
+"{message}"
+
+Reply directly as ATLAS:"""
 
 
-def _conversation_context(brain: CEOBrain) -> str:
-    """Compact, real grounding facts for a conversational turn -- reuses
-    build_briefing() (the same real "since you were last here" narrative
-    already on the page) plus the real pending-approval descriptions
-    (build_console_view's own shape, not a re-derived one), so ATLAS's
-    spoken answers are grounded in exactly the facts the page already
-    shows."""
-    lines = [build_briefing(brain)]
-    pending = build_console_view(brain)["pending_approvals"]
-    if pending:
-        lines.append(
-            "\nFull detail on the item(s) awaiting approval mentioned in the "
-            "summary above (this is the same real list, not additional items):"
-        )
-        for task in pending[:10]:
-            lines.append(f"- [{task['category']}] {task['description']}")
+
+def _conversation_context(brain: CEOBrain, message: str = "") -> str:
+    """Use only the context genuinely needed for this turn.
+
+    Independent commands must not be biased by previous turns.
+    Conversation history is supplied only when the founder refers to
+    prior conversation/continuity. Company state is supplied only when
+    the current message asks for company state.
+    """
+    normalized = (message or "").strip().lower()
+
+    state_terms = (
+        "מצב", "חברה", "משימות", "משימה", "חסימות", "חסימה",
+        "הכנסה", "הכנסות", "יעד", "יעדים", "אישורים", "אישור",
+        "דוח", "מה קיים", "מה יש", "מה פתוח",
+        "מה קרה", "מה חדש", "עדכון",
+        "company", "status", "task", "tasks", "revenue",
+        "income", "blocker", "blockers", "approval", "approvals",
+        "goals", "report", "what happened", "what's new", "update",
+    )
+
+    continuity_terms = (
+        "קודם", "מקודם", "לפני", "המשך", "תמשיך", "המשכנו",
+        "עצרנו", "דיברנו", "אמרת", "אמרתי", "התכוונת",
+        "מה שאמרת", "מה שאמרתי", "השיחה הקודמת",
+        "זוכר", "תזכור",
+        "previous", "earlier", "continue", "remember",
+        "what you said", "what i said",
+    )
+
+    wants_company_state = any(term in normalized for term in state_terms)
+    wants_history = any(term in normalized for term in continuity_terms)
+
+    lines: list[str] = []
+
+    # Do NOT inject old turns into an independent command such as
+    # "תגיד שלוש". Old answers must never influence the new instruction.
+    if wants_history:
+        recent = brain.conversations.recent(limit=3)
+        if recent:
+            lines.append("Recent conversation continuity:")
+            for turn in recent:
+                founder = (turn.input_line or "").strip().replace("\n", " ")[:240]
+                atlas = (turn.response_summary or "").strip().replace("\n", " ")[:320]
+                lines.append(f"Founder: {founder}")
+                lines.append(f"ATLAS: {atlas}")
+
+    if wants_company_state:
+        lines.append("\nRelevant live company state:")
+        lines.append(build_briefing(brain))
+
+        pending = build_console_view(brain)["pending_approvals"]
+        if pending:
+            lines.append("\nPending approvals relevant to company state:")
+            for task in pending[:10]:
+                lines.append(f"- [{task['category']}] {task['description']}")
+
+    if not lines:
+        return "No additional background is needed for this turn."
+
     return "\n".join(lines)
+
 
 
 def _real_decisions(brain: CEOBrain, limit: int = 8) -> list[dict]:
@@ -268,6 +325,51 @@ def _real_state(brain: CEOBrain) -> dict:
     }
 
 
+
+def _health_snapshot(brain: CEOBrain) -> tuple[dict, int]:
+    """Minimal production liveness/state-readability check.
+
+    Deliberately does not build the full Headquarters state, run a tick,
+    call AI, browse the web, or touch any external provider. It verifies
+    only that the two core durable financial/brain stores are readable.
+    """
+    checks = {}
+    healthy = True
+
+    try:
+        goals = brain.memory.goals()
+        checks["memory"] = {
+            "status": "ok",
+            "goals_readable": len(goals),
+        }
+    except Exception as exc:
+        healthy = False
+        checks["memory"] = {
+            "status": "error",
+            "error_type": type(exc).__name__,
+        }
+
+    try:
+        entries = brain.ledger.entries()
+        checks["ledger"] = {
+            "status": "ok",
+            "entries_readable": len(entries),
+        }
+    except Exception as exc:
+        healthy = False
+        checks["ledger"] = {
+            "status": "error",
+            "error_type": type(exc).__name__,
+        }
+
+    payload = {
+        "status": "ok" if healthy else "unhealthy",
+        "service": "atlas-headquarters",
+        "checks": checks,
+    }
+    return payload, 200 if healthy else 503
+
+
 def create_app(brain: CEOBrain | None = None, ai_provider: AIProvider | None = None) -> Starlette:
     """Builds the real, real ASGI app. `brain` is injectable — the same
     dependency-injection discipline every other real component in this
@@ -292,6 +394,12 @@ def create_app(brain: CEOBrain | None = None, ai_provider: AIProvider | None = N
     # request, including the plain index page, for as long as it ran.
     # run_in_threadpool matches the discipline api_converse already
     # established for the AI provider call.
+    async def api_health(request):
+        payload, status_code = await run_in_threadpool(
+            _health_snapshot, brain
+        )
+        return JSONResponse(payload, status_code=status_code)
+
     async def api_state(request):
         return JSONResponse(await run_in_threadpool(_real_state, brain))
 
@@ -364,7 +472,7 @@ def create_app(brain: CEOBrain | None = None, ai_provider: AIProvider | None = N
         if not message:
             return JSONResponse({"error": "a real, non-empty message is required"}, status_code=400)
 
-        prompt = _ATLAS_PERSONA_PROMPT.format(context=_conversation_context(brain), message=message)
+        prompt = _ATLAS_PERSONA_PROMPT.format(context=_conversation_context(brain, message), message=message)
         try:
             reply = await run_in_threadpool(ai_provider.complete, prompt)
         except Exception as exc:
@@ -401,6 +509,7 @@ def create_app(brain: CEOBrain | None = None, ai_provider: AIProvider | None = N
     return Starlette(
         routes=[
             Route("/", index),
+            Route("/health", api_health),
             Route("/api/state", api_state),
             Route("/api/approve/{task_id}", api_approve, methods=["POST"]),
             Route("/api/reject/{task_id}", api_reject, methods=["POST"]),

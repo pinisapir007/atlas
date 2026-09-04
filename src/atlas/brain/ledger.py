@@ -2,7 +2,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from atlas.brain.models import LedgerEntry
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 
 
 class Ledger:
@@ -27,9 +27,10 @@ class Ledger:
         self._store.write(data)
 
     def record(self, entry: LedgerEntry) -> None:
-        data = self._read()
-        data["entries"][entry.id] = asdict(entry)
-        self._write(data)
+        def mutate(data):
+            data["entries"][entry.id] = asdict(entry)
+
+        update_store(self._store, self._read(), mutate)
 
     def entries(self) -> list[LedgerEntry]:
         return [LedgerEntry(**e) for e in self._read()["entries"].values()]
@@ -39,3 +40,11 @@ class Ledger:
 
     def entries_for_transaction(self, transaction_id: str) -> list[LedgerEntry]:
         return [e for e in self.entries() if e.transaction_id == transaction_id]
+
+
+    def entries_for_provider_event(self, provider: str, provider_event_id: str) -> list[LedgerEntry]:
+        return [
+            e for e in self.entries()
+            if e.provider == provider
+            and e.provider_event_id == provider_event_id
+        ]

@@ -102,3 +102,18 @@ def test_rejects_when_affiliate_disclosure_is_missing():
 
     assert fields is None
     assert "disclosure" in reason.lower()
+
+
+
+def test_digistore24_tracking_link_carries_goal_as_campaign_key():
+    opportunity = _approved_opportunity()
+    opportunity.provider = "digistore24"
+    opportunity.real_affiliate_link = "https://KetoDNA.app/d#aff=2026mayabotd1b5"
+
+    fields, reason = build_publish_package(opportunity)
+
+    assert reason == "ok"
+    assert fields["tracking_link"] == (
+        "https://KetoDNA.app/d"
+        "#aff=2026mayabotd1b5&cam=goal-a"
+    )

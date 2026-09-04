@@ -15,7 +15,7 @@ already uses (e.g. affiliate link validation's parsed, not substring,
 
 from pathlib import Path
 
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 
 
 class ResourceAllowlist:
@@ -38,20 +38,22 @@ class ResourceAllowlist:
         Idempotent — approving an already-approved folder is a no-op,
         never a duplicate entry."""
         resolved = str(Path(path).resolve())
-        data = self._read()
-        if resolved not in data["folders"]:
-            data["folders"].append(resolved)
-            self._write(data)
+        def mutate(data):
+            if resolved not in data["folders"]:
+                data["folders"].append(resolved)
+
+        update_store(self._store, self._read(), mutate)
 
     def revoke_folder(self, path: str) -> None:
         """Removes a folder's approval — the engine will refuse to scan
         it again from the next scan onward. A no-op if it was never
         approved."""
         resolved = str(Path(path).resolve())
-        data = self._read()
-        if resolved in data["folders"]:
-            data["folders"].remove(resolved)
-            self._write(data)
+        def mutate(data):
+            if resolved in data["folders"]:
+                data["folders"].remove(resolved)
+
+        update_store(self._store, self._read(), mutate)
 
     def approved_folders(self) -> list[str]:
         return list(self._read()["folders"])

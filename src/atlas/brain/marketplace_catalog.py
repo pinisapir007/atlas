@@ -27,7 +27,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from atlas.brain.marketplace_extraction import MarketplaceProductRecord, dedupe_key
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 
 
 def _real_vendor_matches_for_name(name_norm: str, products: dict) -> list[str]:
@@ -166,52 +166,57 @@ class MarketplaceCatalogStore:
         never the raw one -- the raw value may still be worth keeping for
         provenance/debugging, but it is never a second, independent
         identity."""
-        data = self._read()
-        products = data["products"]
-        new_keys: list[str] = []
-        canonical_by_raw: dict[str, str] = {}
+        result = {}
 
-        for record in records:
-            raw_key = dedupe_key(record)
-            key = raw_key
-            entry = asdict(record)
-            vendor_present = bool((record.vendor or "").strip())
-            is_upgrade_migration = False
+        def mutate(data):
+            products = data["products"]
+            new_keys: list[str] = []
+            canonical_by_raw: dict[str, str] = {}
 
-            if key not in products:
-                name_norm = record.product_name.strip().casefold()
-                if not vendor_present:
-                    real_vendor_matches = _real_vendor_matches_for_name(name_norm, products)
-                    if len(real_vendor_matches) == 1:
-                        key = real_vendor_matches[0]
-                    elif len(real_vendor_matches) > 1:
-                        entry["identity_ambiguous"] = True
-                else:
-                    placeholder_key = f"::{name_norm}"
-                    placeholder_entry = products.get(placeholder_key)
-                    if placeholder_entry is not None and not placeholder_entry.get("identity_ambiguous"):
-                        del products[placeholder_key]
-                        entry["first_observed_at"] = placeholder_entry["first_observed_at"]
-                        is_upgrade_migration = True
+            for record in records:
+                raw_key = dedupe_key(record)
+                key = raw_key
+                entry = asdict(record)
+                vendor_present = bool((record.vendor or "").strip())
+                is_upgrade_migration = False
 
-            if key in products:
-                existing = products[key]
-                entry["first_observed_at"] = existing["first_observed_at"]
-                for preserve_field in ("vendor", "detail_id", "detail_url", "action_status_raw", "commission_type_raw"):
-                    if not entry.get(preserve_field) and existing.get(preserve_field):
-                        entry[preserve_field] = existing[preserve_field]
-                for preserve_field in ("price", "commission_pct"):
-                    if entry.get(preserve_field) is None and existing.get(preserve_field) is not None:
-                        entry[preserve_field] = existing[preserve_field]
-            elif not is_upgrade_migration:
-                entry["first_observed_at"] = record.observed_at
-                new_keys.append(key)
-            entry["last_observed_at"] = record.observed_at
-            products[key] = entry
-            canonical_by_raw[raw_key] = key
+                if key not in products:
+                    name_norm = record.product_name.strip().casefold()
+                    if not vendor_present:
+                        real_vendor_matches = _real_vendor_matches_for_name(name_norm, products)
+                        if len(real_vendor_matches) == 1:
+                            key = real_vendor_matches[0]
+                        elif len(real_vendor_matches) > 1:
+                            entry["identity_ambiguous"] = True
+                    else:
+                        placeholder_key = f"::{name_norm}"
+                        placeholder_entry = products.get(placeholder_key)
+                        if placeholder_entry is not None and not placeholder_entry.get("identity_ambiguous"):
+                            del products[placeholder_key]
+                            entry["first_observed_at"] = placeholder_entry["first_observed_at"]
+                            is_upgrade_migration = True
 
-        self._write(data)
-        return new_keys, canonical_by_raw
+                if key in products:
+                    existing = products[key]
+                    entry["first_observed_at"] = existing["first_observed_at"]
+                    for preserve_field in ("vendor", "detail_id", "detail_url", "action_status_raw", "commission_type_raw"):
+                        if not entry.get(preserve_field) and existing.get(preserve_field):
+                            entry[preserve_field] = existing[preserve_field]
+                    for preserve_field in ("price", "commission_pct"):
+                        if entry.get(preserve_field) is None and existing.get(preserve_field) is not None:
+                            entry[preserve_field] = existing[preserve_field]
+                elif not is_upgrade_migration:
+                    entry["first_observed_at"] = record.observed_at
+                    new_keys.append(key)
+                entry["last_observed_at"] = record.observed_at
+                products[key] = entry
+                canonical_by_raw[raw_key] = key
+
+            result["new_keys"] = new_keys
+            result["canonical_by_raw"] = canonical_by_raw
+
+        update_store(self._store, {"products": {}}, mutate)
+        return result["new_keys"], result["canonical_by_raw"]
 
     def resolve_canonical(self, record: MarketplaceProductRecord) -> str:
         """Read-only lookup: what canonical key WOULD this record resolve

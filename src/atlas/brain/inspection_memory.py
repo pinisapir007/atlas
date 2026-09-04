@@ -30,7 +30,7 @@ where that state lives between processes.
 
 from pathlib import Path
 
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 from atlas.integrations.traversal_completion import PageCompletionTracker
 
 
@@ -46,9 +46,10 @@ class InspectionMemoryStore:
         self._store.write(data)
 
     def save_tracker(self, page_key: str, tracker: PageCompletionTracker) -> None:
-        data = self._read()
-        data.setdefault("pages", {})[page_key] = tracker.to_dict()
-        self._write(data)
+        def mutate(data):
+            data.setdefault("pages", {})[page_key] = tracker.to_dict()
+
+        update_store(self._store, self._read(), mutate)
 
     def load_tracker(self, page_key: str) -> PageCompletionTracker:
         raw = self._read().get("pages", {}).get(page_key)

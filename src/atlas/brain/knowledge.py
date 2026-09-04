@@ -10,7 +10,7 @@ from atlas.brain.models import (
     FutureItem,
     SuccessLaw,
 )
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 
 _EMPTY = {"findings": {}, "success_laws": {}, "future_items": {}, "claims": {}}
 
@@ -60,9 +60,10 @@ class KnowledgeBase:
         self._store.write(data)
 
     def save_finding(self, finding: Finding) -> None:
-        data = self._read()
-        data["findings"][finding.id] = asdict(finding)
-        self._write(data)
+        def mutate(data):
+            data["findings"][finding.id] = asdict(finding)
+
+        update_store(self._store, self._read(), mutate)
 
     def findings(
         self, category: str | None = None, provider: str | None = None, subject: str | None = None
@@ -105,9 +106,10 @@ class KnowledgeBase:
         return Finding(**raw)
 
     def save_success_law(self, law: SuccessLaw) -> None:
-        data = self._read()
-        data.setdefault("success_laws", {})[law.id] = asdict(law)
-        self._write(data)
+        def mutate(data):
+            data.setdefault("success_laws", {})[law.id] = asdict(law)
+
+        update_store(self._store, self._read(), mutate)
 
     def success_laws(self) -> list[SuccessLaw]:
         return [SuccessLaw(**law) for law in self._read().get("success_laws", {}).values()]
@@ -142,9 +144,10 @@ class KnowledgeBase:
                 f"unknown trigger_check: {item.trigger_check!r} — not registered in TRIGGER_CHECKS and not UNWIRED_TRIGGER_CHECK"
             )
 
-        data = self._read()
-        data.setdefault("future_items", {})[item.id] = asdict(item)
-        self._write(data)
+        def mutate(data):
+            data.setdefault("future_items", {})[item.id] = asdict(item)
+
+        update_store(self._store, self._read(), mutate)
 
     def future_items(self) -> list[FutureItem]:
         return [FutureItem(**f) for f in self._read().get("future_items", {}).values()]
@@ -184,9 +187,10 @@ class KnowledgeBase:
         if claim.superseded_by_id is not None:
             self.get_claim(claim.superseded_by_id)
 
-        data = self._read()
-        data.setdefault("claims", {})[claim.id] = asdict(claim)
-        self._write(data)
+        def mutate(data):
+            data.setdefault("claims", {})[claim.id] = asdict(claim)
+
+        update_store(self._store, self._read(), mutate)
 
     def claims(self, subject_id: str | None = None, predicate: str | None = None) -> list[Claim]:
         """Same optional-equality-filter shape as findings() — subject_id

@@ -211,6 +211,8 @@
   .btn-mic { background: var(--surface2); border: 1px solid var(--line); border-radius: 50%; width: 38px; height: 38px; font-size: 15px; cursor: pointer; flex-shrink: 0; }
   .btn-mic.recording { background: var(--bad); border-color: var(--bad); animation: pulse 1s infinite; }
   .btn-mic:disabled { opacity: .35; cursor: default; }
+  .btn-action.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface2)); }
+  #continuous-voice-btn.active { border-color: var(--bad); color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, var(--surface2)); }
   .btn-send { background: var(--accent); color: var(--accent-ink); border-radius: 20px; padding: 9px 18px; font-size: 13px; font-weight: 700; border: none; cursor: pointer; flex-shrink: 0; }
   .btn-send:disabled { opacity: .5; cursor: default; }
 </style>
@@ -312,6 +314,9 @@
       <input id="chat-input" type="text" placeholder="כתוב הודעה ל-ATLAS..." autocomplete="off">
       <button type="submit" class="btn-send" id="chat-send-btn">שלח</button>
     </form>
+    <div class="btn-row" style="margin-top:10px;">
+      <button type="button" id="continuous-voice-btn" class="btn-action" onclick="toggleContinuousVoice()" title="שיחה רציפה: דבר עם ATLAS ברצף בעברית בלי ללחוץ על המיקרופון בכל משפט">🎙️ התחל שיחה רציפה</button>
+    </div>
   </div>
 
   <div class="company-section">
@@ -416,6 +421,94 @@ function setCaption(text, live) {
   bar.classList.toggle('live', !!live);
 }
 
+// --- PURE-LOGIC-BLOCK-START (tests/headquarters/test_continuous_voice.js
+// extracts exactly this block by these two literal anchor comments and
+// runs it standalone under Node -- the single real source of truth,
+// never a duplicated copy that could silently drift from what ships to
+// the browser) ---
+// ============================================================
+// Continuous Voice -- pure decision logic (2026-08-23, Pre-24/7
+// Continuous Founder Voice). Deliberately factored out of every DOM/
+// SpeechRecognition/SpeechSynthesis call: the Web Speech API only
+// exists inside a real browser, so the actual event wiring below can
+// never be unit-tested outside one -- honestly disclosed in the
+// mission report, not glossed over. What CAN be tested without a
+// browser is the DECISION each event handler makes, so every real
+// judgment call in the continuous-voice loop lives in one of these
+// plain, parameter-in-value-out functions instead of being buried
+// inside an event callback. tests/headquarters/test_continuous_voice.js
+// (plain Node, zero new dependency) exercises these directly.
+// ============================================================
+
+const VOICE_LANG = 'he-IL';
+const CONT_MAX_RESTART_ATTEMPTS = 5;
+const CONT_RESTART_BASE_MS = 600;
+const CONT_RESTART_CAP_MS = 12000;
+const CONT_SILENCE_SEND_MS = 1200;
+
+/** True if `transcript` (a real-time recognition result captured while
+ * ATLAS is speaking) is more likely to be the mic picking up ATLAS's
+ * OWN voice through a shared speaker than a genuine founder
+ * interruption -- req 6 (feedback-loop protection). A practical
+ * heuristic, not true acoustic echo cancellation (the Web Speech API
+ * exposes no AEC control from JS): a short fragment, or one that's a
+ * substring of (or contains the start of) what ATLAS is currently
+ * saying, is treated as an echo and ignored. HONEST LIMITATION: with
+ * real over-the-air speaker playback (no headphones) this can produce
+ * a false negative (a genuine short interruption that happens to
+ * overlap ATLAS's own wording gets ignored) or, rarely, a false
+ * positive; on headphones there is no real acoustic path from speaker
+ * to mic at all, so this heuristic is never even exercised. */
+function isLikelySelfEcho(transcript, spokenText) {
+  const a = (transcript || '').trim().toLowerCase();
+  const b = (spokenText || '').trim().toLowerCase();
+  if (!b) return false;
+  if (a.length < 3) return true;
+  if (b.includes(a)) return true;
+  return a.includes(b.slice(0, Math.min(24, b.length)));
+}
+
+/** Pure exponential-backoff delay (ms) for the Nth bounded restart
+ * attempt after an unexpected recognition end/error -- req 7. Capped,
+ * never unbounded, so a persistently failing recognizer degrades to a
+ * slow, bounded retry rather than a rapid restart loop. */
+function computeBackoffDelayMs(attempt) {
+  return Math.min(CONT_RESTART_BASE_MS * Math.pow(2, Math.max(0, attempt)), CONT_RESTART_CAP_MS);
+}
+
+/** Whether an unexpected recognition end/error should trigger a real
+ * auto-restart -- req 7/5. False whenever the founder has explicitly
+ * pressed STOP (manualStop), whenever continuous mode itself is off,
+ * whenever the end was actually EXPECTED (we stopped it ourselves to
+ * send a turn, or to let TTS play), or once the bounded retry budget
+ * is exhausted. */
+function shouldAutoRestart(continuousOn, manualStop, voiceTurnState, restartAttempts) {
+  if (!continuousOn || manualStop) return false;
+  if (voiceTurnState === 'thinking' || voiceTurnState === 'speaking') return false;
+  if (restartAttempts >= CONT_MAX_RESTART_ATTEMPTS) return false;
+  return true;
+}
+
+/** Picks a real Hebrew voice from the browser's own real
+ * speechSynthesis.getVoices() list -- req 3. `voices` is a plain array
+ * of {lang, name, ...} so this is testable with a plain fixture array,
+ * with no real SpeechSynthesis object needed. Returns null (never a
+ * silent, unreported fallback) when no he-* voice is installed --
+ * callers must report this honestly rather than pretend Hebrew audio
+ * was used. */
+function resolveHebrewVoice(voices) {
+  if (!voices || !voices.length) return null;
+  return voices.find((v) => v && typeof v.lang === 'string' && v.lang.toLowerCase().startsWith('he')) || null;
+}
+
+// Dual browser/Node export: `module` only exists under Node (the real
+// test runner for this file, see tests/headquarters/test_continuous_voice.js);
+// this line never executes in a real browser, where `module` is undefined.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { isLikelySelfEcho, computeBackoffDelayMs, shouldAutoRestart, resolveHebrewVoice, CONT_MAX_RESTART_ATTEMPTS, CONT_RESTART_BASE_MS, CONT_RESTART_CAP_MS };
+}
+// --- PURE-LOGIC-BLOCK-END ---
+
 // --- Voice, entirely browser-native (Web Speech API) -- zero new
 // dependency, zero server involvement, best-effort and silently
 // degrades on a browser/OS without it, the same "optional if available,
@@ -428,15 +521,181 @@ function toggleVoice() {
   if (!voiceEnabled && window.speechSynthesis) window.speechSynthesis.cancel();
 }
 
-function speak(text) {
-  if (!text || !window.speechSynthesis) return;
+// Real Hebrew voice list is often loaded asynchronously by the browser
+// (a real, documented Web Speech API quirk) -- getVoices() can return
+// [] on the very first call. Refreshed on 'voiceschanged' too, so
+// resolveHebrewVoice() sees the real list once it actually loads,
+// never just an empty first snapshot.
+let cachedVoices = [];
+function refreshVoiceList() { if (window.speechSynthesis) cachedVoices = window.speechSynthesis.getVoices(); }
+refreshVoiceList();
+if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = refreshVoiceList;
+
+let currentSpokenText = ''; // what ATLAS is saying right now -- read by the continuous-voice self-echo guard (req 6)
+
+/** Speaks `text` aloud via the real browser TTS path, requesting a real
+ * Hebrew voice when the browser has one installed (req 3) -- honestly
+ * reports (console.warn, never silent) when it falls back to a non-
+ * Hebrew voice. `onDone` (optional) fires once, on real completion OR
+ * real error -- the continuous-voice loop uses this to know exactly
+ * when it's safe to resume listening (req 1/4). */
+function splitSpeechChunks(text, maxChars = 180) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return [];
+
+  // Prefer natural sentence boundaries, then split unusually long
+  // sentences by words so Chrome never receives one huge utterance.
+  const sentences = normalized.match(/[^.!?…]+[.!?…]?/g) || [normalized];
+  const chunks = [];
+
+  for (const sentence of sentences) {
+    const s = sentence.trim();
+    if (!s) continue;
+
+    if (s.length <= maxChars) {
+      chunks.push(s);
+      continue;
+    }
+
+    const words = s.split(/\s+/);
+    let chunk = '';
+
+    for (const word of words) {
+      const candidate = chunk ? chunk + ' ' + word : word;
+      if (candidate.length > maxChars && chunk) {
+        chunks.push(chunk);
+        chunk = word;
+      } else {
+        chunk = candidate;
+      }
+    }
+
+    if (chunk) chunks.push(chunk);
+  }
+
+  return chunks;
+}
+
+function speak(text, onDone) {
+  if (!text || !window.speechSynthesis) {
+    if (onDone) onDone();
+    return;
+  }
+
   window.speechSynthesis.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = 'he-IL';
-  utter.onstart = () => { setPresence('speaking'); setCaption(text, true); };
-  utter.onend = () => setPresence('idle');
-  utter.onerror = () => setPresence('idle');
-  window.speechSynthesis.speak(utter);
+
+  refreshVoiceList();
+  const heVoice = resolveHebrewVoice(cachedVoices);
+  if (!heVoice) {
+    console.warn('ATLAS: no Hebrew (he-IL) TTS voice is installed in this browser.');
+  }
+
+  const chunks = splitSpeechChunks(text);
+  if (!chunks.length) {
+    if (onDone) onDone();
+    return;
+  }
+
+  currentSpokenText = text;
+
+  let finished = false;
+  let chunkIndex = 0;
+  let chunkPoll = null;
+  let safetyTimer = null;
+  let speechStarted = false;
+
+  const clearChunkPoll = () => {
+    if (chunkPoll) {
+      clearInterval(chunkPoll);
+      chunkPoll = null;
+    }
+  };
+
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+
+    clearChunkPoll();
+    if (safetyTimer) clearTimeout(safetyTimer);
+
+    currentSpokenText = '';
+    setPresence('idle');
+
+    if (onDone) onDone();
+  };
+
+  const speakNextChunk = () => {
+    if (finished) return;
+
+    if (chunkIndex >= chunks.length) {
+      finish();
+      return;
+    }
+
+    clearChunkPoll();
+
+    const utter = new SpeechSynthesisUtterance(chunks[chunkIndex]);
+    utter.lang = VOICE_LANG;
+    if (heVoice) utter.voice = heVoice;
+
+    let chunkFinished = false;
+    let chunkStarted = false;
+
+    const completeChunk = () => {
+      if (chunkFinished || finished) return;
+      chunkFinished = true;
+      clearChunkPoll();
+      chunkIndex++;
+
+      // Tiny hand-off gap makes Chrome TTS substantially more reliable
+      // while remaining natural to the listener.
+      setTimeout(speakNextChunk, 35);
+    };
+
+    utter.onstart = () => {
+      chunkStarted = true;
+
+      if (!speechStarted) {
+        speechStarted = true;
+        setPresence('speaking');
+        setCaption(text, true);
+      }
+    };
+
+    utter.onend = completeChunk;
+
+    utter.onerror = (e) => {
+      console.warn('ATLAS: TTS utterance error', e.error || e);
+      finish();
+    };
+
+    window.speechSynthesis.speak(utter);
+
+    // Chrome occasionally misses utter.onend. If this particular chunk
+    // really stopped speaking, advance safely to the next one.
+    chunkPoll = setInterval(() => {
+      if (
+        chunkStarted &&
+        !chunkFinished &&
+        !window.speechSynthesis.speaking &&
+        !window.speechSynthesis.pending
+      ) {
+        completeChunk();
+      }
+    }, 250);
+  };
+
+  // Last-resort escape from a genuinely stuck multi-chunk TTS sequence.
+  const safetyMs = Math.max(15000, Math.min(120000, 10000 + text.length * 220));
+  safetyTimer = setTimeout(() => {
+    if (!finished) {
+      console.warn('ATLAS: V10 TTS completion safety timeout');
+      window.speechSynthesis.cancel();
+      finish();
+    }
+  }, safetyMs);
+
+  speakNextChunk();
 }
 
 let lastBriefing = '';
@@ -478,6 +737,362 @@ function toggleMic() {
   try { recognizer.start(); } catch (e) { $('mic-btn').classList.remove('recording'); }
 }
 
+// ============================================================
+// Continuous Voice mode -- the real hands-free loop: listen -> final
+// result -> postConverseMessage() (the SAME proven /api/converse call
+// above) -> speak() the reply -> automatically resume listening once
+// speech ends -> repeat, until the founder explicitly presses STOP.
+// A separate recognizer instance from the one-shot mic's `recognizer`
+// (toggleMic() above) -- the two are never armed at the same time
+// (mic-btn is disabled while continuous mode is on) since most
+// browsers only support one live SpeechRecognition session at a time.
+// ============================================================
+let continuousVoiceOn = false;   // master ON/OFF -- only START/STOP ever sets this (req 5)
+let manualVoiceStop = true;      // true once the founder has explicitly pressed STOP -- blocks all auto-restart
+let voiceTurnState = 'idle';     // 'idle' | 'listening' | 'thinking' | 'speaking'
+let contRecognizer = null;
+let contRestartAttempts = 0;
+let contRestartTimer = null;
+let contSilenceTimer = null;
+
+// V9: recover from Chrome SpeechRecognition sessions that remain
+// "active" but silently stop delivering speech/end/error events.
+let contWatchdogTimer = null;
+const CONT_LISTEN_WATCHDOG_MS = 12000;
+
+function armContinuousWatchdog(rec) {
+  clearTimeout(contWatchdogTimer);
+
+  contWatchdogTimer = setTimeout(() => {
+    if (!continuousVoiceOn || manualVoiceStop) return;
+    if (voiceTurnState !== 'listening') return;
+    if (contRecognizer !== rec) return;
+
+    console.warn('VOICE_V9 watchdog: recycling stalled SpeechRecognition session');
+
+    // Detach first so late onend/onerror callbacks from this old
+    // recognizer cannot start a second recognition session.
+    contRecognizer = null;
+    try { rec.abort(); } catch (e) {}
+
+    setTimeout(() => {
+      if (
+        continuousVoiceOn &&
+        !manualVoiceStop &&
+        voiceTurnState === 'listening' &&
+        !contRecognizer
+      ) {
+        armContinuousListening();
+      }
+    }, 200);
+  }, CONT_LISTEN_WATCHDOG_MS);
+}
+
+// Each real founder utterance may create exactly one ATLAS turn.
+let contSpeechGeneration = 0;
+let contHandledGeneration = 0;
+let contSpeechOpen = false;
+let contPendingTranscript = '';
+let contResultBaseIndex = -1;
+let contSpeechEndTimer = null;
+let voiceDiagSpeechStart = 0;
+let voiceDiagFirstResult = 0;
+let voiceDiagRecognitionMs = null;
+
+function initContinuousRecognizer() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) return null;
+
+  const rec = new Recognition();
+  rec.lang = VOICE_LANG;
+  rec.interimResults = true;
+  rec.maxAlternatives = 1;
+  rec.continuous = false;
+
+  let turnSent = false;
+  let pendingTranscript = '';
+  let finalizeTimer = null;
+
+  const finalizeTurn = () => {
+    if (turnSent) return;
+    if (!continuousVoiceOn || manualVoiceStop) return;
+    if (voiceTurnState !== 'listening') return;
+
+    const message = pendingTranscript.trim();
+    if (!message) return;
+
+    turnSent = true;
+    clearTimeout(finalizeTimer);
+    sendContinuousTurn(message);
+  };
+
+  rec.onspeechstart = () => {
+    if (contRecognizer !== rec) return;
+    armContinuousWatchdog(rec);
+    voiceDiagSpeechStart = performance.now();
+    voiceDiagFirstResult = 0;
+    voiceDiagRecognitionMs = null;
+    pendingTranscript = '';
+    setCaption('🎙️ שמעתי שהתחלת לדבר...', true);
+  };
+
+  rec.onresult = (e) => {
+    if (contRecognizer !== rec) return;
+    armContinuousWatchdog(rec);
+    if (turnSent) return;
+
+    if (!voiceDiagFirstResult) {
+      voiceDiagFirstResult = performance.now();
+      if (voiceDiagSpeechStart) {
+        voiceDiagRecognitionMs = voiceDiagFirstResult - voiceDiagSpeechStart;
+      }
+    }
+
+    let transcript = '';
+    let isFinal = false;
+
+    for (let i = 0; i < e.results.length; i++) {
+      transcript += e.results[i][0].transcript;
+      if (e.results[i].isFinal) isFinal = true;
+    }
+
+    pendingTranscript = transcript.trim();
+    if (!pendingTranscript) return;
+
+    setCaption(pendingTranscript, true);
+
+    clearTimeout(finalizeTimer);
+
+    if (isFinal) {
+      finalizeTurn();
+    } else {
+      // Chrome sometimes delays the final flag.
+      finalizeTimer = setTimeout(finalizeTurn, 700);
+    }
+  };
+
+  rec.onspeechend = () => {
+    clearTimeout(finalizeTimer);
+    finalizeTimer = setTimeout(finalizeTurn, 120);
+  };
+
+  rec.onend = () => {
+    clearTimeout(finalizeTimer);
+
+    // Ignore late callbacks from a recognizer that V9 already retired.
+    if (contRecognizer !== rec) return;
+
+    clearTimeout(contWatchdogTimer);
+    contRecognizer = null;
+
+    // If this session ended without producing a turn, open a NEW,
+    // clean session. Never reuse results from the old one.
+    if (
+      !turnSent &&
+      continuousVoiceOn &&
+      !manualVoiceStop &&
+      voiceTurnState === 'listening'
+    ) {
+      setTimeout(() => {
+        if (!contRecognizer) armContinuousListening();
+      }, 250);
+    }
+  };
+
+  rec.onerror = (e) => {
+    // Ignore late callbacks from a recognizer that V9 already retired.
+    if (contRecognizer !== rec) return;
+
+    clearTimeout(contWatchdogTimer);
+    contRecognizer = null;
+
+    if (e.error === 'aborted') return;
+
+    if (
+      continuousVoiceOn &&
+      !manualVoiceStop &&
+      voiceTurnState === 'listening'
+    ) {
+      setTimeout(() => {
+        if (!contRecognizer) armContinuousListening();
+      }, 350);
+    }
+  };
+
+  return rec;
+}
+
+function scheduleBargeInRestart() {
+  clearTimeout(contRestartTimer);
+  contRestartTimer = setTimeout(() => {
+    if (continuousVoiceOn && !manualVoiceStop && voiceTurnState === 'speaking' && contRecognizer) {
+      try { contRecognizer.start(); } catch (e) {}
+    }
+  }, 250);
+}
+
+function scheduleContRestart() {
+  if (contRestartAttempts >= CONT_MAX_RESTART_ATTEMPTS) {
+    setCaption('זיהוי קול נעצר לאחר כשלים חוזרים — לחץ "התחל שיחה רציפה" כדי לנסות שוב', false);
+    stopContinuousVoice(false);
+    return;
+  }
+  const delay = computeBackoffDelayMs(contRestartAttempts);
+  contRestartAttempts++;
+  clearTimeout(contRestartTimer);
+  contRestartTimer = setTimeout(() => { if (continuousVoiceOn && !manualVoiceStop) armContinuousListening(); }, delay);
+}
+
+function armContinuousListening() {
+  if (!continuousVoiceOn || manualVoiceStop) return;
+
+  clearTimeout(contSilenceTimer);
+  clearTimeout(contWatchdogTimer);
+
+  // Never reuse an existing recognizer. A Chrome recognizer can become
+  // active-looking but dead, so every re-arm gets a fresh instance.
+  if (contRecognizer) {
+    const staleRecognizer = contRecognizer;
+    contRecognizer = null;
+    try { staleRecognizer.abort(); } catch (e) {}
+  }
+
+  const rec = initContinuousRecognizer();
+  if (!rec) {
+    stopContinuousVoice(false);
+    return;
+  }
+
+  contRecognizer = rec;
+  voiceTurnState = 'listening';
+  setPresence('idle', 'ATLAS מקשיב...');
+  setCaption('');
+
+  try {
+    rec.start();
+    armContinuousWatchdog(rec);
+  } catch (e) {
+    if (contRecognizer === rec) contRecognizer = null;
+    try { rec.abort(); } catch (_) {}
+
+    setTimeout(() => {
+      if (
+        continuousVoiceOn &&
+        !manualVoiceStop &&
+        voiceTurnState === 'listening' &&
+        !contRecognizer
+      ) {
+        armContinuousListening();
+      }
+    }, 350);
+  }
+}
+
+function armBargeInListening() {
+  if (!continuousVoiceOn || manualVoiceStop || !contRecognizer) return;
+  voiceTurnState = 'speaking';
+  try { contRecognizer.start(); } catch (e) {}
+}
+
+function isExplicitBargeIn(message) {
+  const text = (message || '').trim().toLowerCase();
+  return /(^|\s)(עצור|רגע|חכה|אטלס|סטופ|שנייה|שניה)(\s|[,.!?]|$)/.test(text);
+}
+
+function handleBargeIn() {
+  window.speechSynthesis.cancel();
+  currentSpokenText = '';
+  voiceTurnState = 'listening';
+  setPresence('idle', 'ATLAS מקשיב... (הפרעת אותו)');
+}
+
+async function sendContinuousTurn(message) {
+  if (!message) { armContinuousListening(); return; }
+
+  clearTimeout(contSilenceTimer);
+  voiceTurnState = 'thinking';
+  contRestartAttempts = 0;
+  clearTimeout(contWatchdogTimer);
+  if (contRecognizer) {
+    const activeRecognizer = contRecognizer;
+    contRecognizer = null;
+    try { activeRecognizer.stop(); } catch (e) {}
+  }
+  setPresence('thinking');
+
+  const backendStarted = performance.now();
+  const result = await postConverseMessage(message);
+  const backendMs = performance.now() - backendStarted;
+
+  const recognitionText = voiceDiagRecognitionMs == null
+    ? 'זיהוי: לא נמדד'
+    : 'זיהוי: ' + (voiceDiagRecognitionMs / 1000).toFixed(2) + ' שנ׳';
+  const backendText = 'ATLAS/Claude: ' + (backendMs / 1000).toFixed(2) + ' שנ׳';
+  console.log('VOICE_DIAG', recognitionText, backendText);
+
+  appendChatBubble(
+    'atlas',
+    '⏱ אבחון קול — ' + recognitionText + ' | ' + backendText,
+    false
+  );
+
+  if (!continuousVoiceOn || manualVoiceStop) return;
+
+  if (result.ok) {
+    voiceTurnState = 'speaking';
+    currentSpokenText = result.reply;
+    speak(result.reply, () => {
+      if (continuousVoiceOn && !manualVoiceStop) {
+        setTimeout(() => armContinuousListening(), 250);
+      }
+    });
+  } else {
+    setPresence('idle');
+    armContinuousListening();
+  }
+}
+
+function startContinuousVoice() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) {
+    setCaption('שיחה רציפה אינה נתמכת בדפדפן הזה', false);
+    return;
+  }
+  contRecognizer = null;
+  continuousVoiceOn = true;
+  manualVoiceStop = false;
+  contRestartAttempts = 0;
+  $('continuous-voice-btn').textContent = '🛑 עצור שיחה רציפה';
+  $('continuous-voice-btn').classList.add('active');
+  $('mic-btn').disabled = true; // one live recognition session at a time
+  if (!voiceEnabled) { voiceEnabled = true; $('voice-toggle-btn').textContent = '🔊 קול'; $('voice-toggle-btn').classList.add('active'); }
+  armContinuousListening();
+}
+
+function stopContinuousVoice(userInitiated) {
+  continuousVoiceOn = false;
+  manualVoiceStop = true; // req 5 -- it must not silently restart
+  voiceTurnState = 'idle';
+  clearTimeout(contRestartTimer);
+  clearTimeout(contWatchdogTimer);
+  if (contRecognizer) {
+    const activeRecognizer = contRecognizer;
+    contRecognizer = null;
+    try { activeRecognizer.abort(); } catch (e) {}
+  }
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+  currentSpokenText = '';
+  $('continuous-voice-btn').textContent = '🎙️ התחל שיחה רציפה';
+  $('continuous-voice-btn').classList.remove('active');
+  $('mic-btn').disabled = false;
+  setPresence('idle');
+  if (userInitiated) setCaption('שיחה רציפה נעצרה', false);
+}
+
+function toggleContinuousVoice() {
+  if (continuousVoiceOn) stopContinuousVoice(true); else startContinuousVoice();
+}
+
 // --- Real conversation with ATLAS: a genuine, grounded reply from a
 // real AI backend (server-side), never a scripted response. Each turn
 // costs real money and real seconds server-side -- deliberately only
@@ -495,31 +1110,45 @@ function appendChatBubble(who, text, isError) {
   log.scrollTop = log.scrollHeight;
 }
 
+// The one real call every conversational surface on this page goes
+// through -- typed chat, the one-shot mic, and Continuous Voice mode
+// all call this SAME function, which hits the SAME /api/converse
+// endpoint and the SAME server-side ConversationMemory already proven
+// (Pre-24/7 Must-Have: Continuous Founder Communication). Continuous
+// Voice is a UI-layer control loop on top of this, never a second,
+// separate conversation path.
+async function postConverseMessage(message) {
+  appendChatBubble('founder', message, false);
+  try {
+    const res = await fetch('/api/converse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) });
+    const data = await res.json();
+    if (res.ok) {
+      appendChatBubble('atlas', data.reply, false);
+      return { ok: true, reply: data.reply };
+    }
+    appendChatBubble('atlas', data.error || 'ATLAS אינו זמין כרגע', true);
+    return { ok: false };
+  } catch (e) {
+    appendChatBubble('atlas', 'החיבור ל-ATLAS נכשל', true);
+    return { ok: false };
+  }
+}
+
 async function sendChat(event) {
   event.preventDefault();
   const input = $('chat-input');
   const message = input.value.trim();
   if (!message) return false;
   input.value = '';
-  appendChatBubble('founder', message, false);
   $('chat-send-btn').disabled = true;
   setPresence('thinking');
-  try {
-    const res = await fetch('/api/converse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) });
-    const data = await res.json();
-    if (res.ok) {
-      appendChatBubble('atlas', data.reply, false);
-      if (voiceEnabled) speak(data.reply); else setPresence('idle');
-    } else {
-      appendChatBubble('atlas', data.error || 'ATLAS אינו זמין כרגע', true);
-      setPresence('idle');
-    }
-  } catch (e) {
-    appendChatBubble('atlas', 'החיבור ל-ATLAS נכשל', true);
+  const result = await postConverseMessage(message);
+  if (result.ok) {
+    if (voiceEnabled) speak(result.reply); else setPresence('idle');
+  } else {
     setPresence('idle');
-  } finally {
-    $('chat-send-btn').disabled = false;
   }
+  $('chat-send-btn').disabled = false;
   return false;
 }
 

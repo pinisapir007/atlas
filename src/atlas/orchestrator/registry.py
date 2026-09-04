@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from atlas.brain.store import BrainStore, JSONFileStore
+from atlas.brain.store import BrainStore, JSONFileStore, update_store
 from atlas.orchestrator.models import ExecutionPlan
 
 
@@ -23,9 +23,10 @@ class ExecutionPlanRegistry:
         self._store.write(data)
 
     def save_plan(self, plan: ExecutionPlan) -> None:
-        data = self._read()
-        data["plans"][plan.id] = plan.to_dict()
-        self._write(data)
+        def mutate(data):
+            data["plans"][plan.id] = plan.to_dict()
+
+        update_store(self._store, self._read(), mutate)
 
     def plans(self) -> list[ExecutionPlan]:
         return [ExecutionPlan.from_dict(p) for p in self._read()["plans"].values()]

@@ -10,25 +10,36 @@ from atlas.brain.models import Goal
 # valuation already enforce.
 
 
-def profit(goal: Goal, kpis: KPIRegistry) -> float | None:
-    revenue = kpis.latest(f"revenue_{goal.id}")
-    cost = kpis.latest(f"cost_{goal.id}")
+def _latest(name: str, kpis: KPIRegistry, snapshot: dict[str, list[dict]] | None = None) -> float | None:
+    if snapshot is None:
+        return kpis.latest(name)
+    history = snapshot.get(name, [])
+    return history[-1]["value"] if history else None
+
+
+def profit(goal: Goal, kpis: KPIRegistry, snapshot: dict[str, list[dict]] | None = None) -> float | None:
+    revenue = _latest(f"revenue_{goal.id}", kpis, snapshot)
+    cost = _latest(f"cost_{goal.id}", kpis, snapshot)
     if revenue is None or cost is None:
         return None
     return revenue - cost
 
 
-def roi(goal: Goal, kpis: KPIRegistry) -> float | None:
+def roi(goal: Goal, kpis: KPIRegistry, snapshot: dict[str, list[dict]] | None = None) -> float | None:
     """Return on investment: profit / cost. None when cost is unmeasured or
     zero — a zero-cost goal has undefined ROI, not infinite ROI."""
-    cost = kpis.latest(f"cost_{goal.id}")
-    p = profit(goal, kpis)
+    cost = _latest(f"cost_{goal.id}", kpis, snapshot)
+    p = profit(goal, kpis, snapshot)
     if p is None or not cost:
         return None
     return p / cost
 
 
-def goal_cash_flow(goals: list[Goal], kpis: KPIRegistry) -> list[dict]:
+def goal_cash_flow(
+    goals: list[Goal],
+    kpis: KPIRegistry,
+    snapshot: dict[str, list[dict]] | None = None,
+) -> list[dict]:
     """One entry per goal with at least revenue or cost measured — the
     shared shape used by both the executive report (Reporter) and the live
     console (atlas console / REPL status), so the two never drift apart.
@@ -40,9 +51,9 @@ def goal_cash_flow(goals: list[Goal], kpis: KPIRegistry) -> list[dict]:
     while `settled` reveals none of it has actually been paid out yet."""
     entries = []
     for goal in goals:
-        revenue = kpis.latest(f"revenue_{goal.id}")
-        cost = kpis.latest(f"cost_{goal.id}")
-        settled = kpis.latest(f"settled_{goal.id}")
+        revenue = _latest(f"revenue_{goal.id}", kpis, snapshot)
+        cost = _latest(f"cost_{goal.id}", kpis, snapshot)
+        settled = _latest(f"settled_{goal.id}", kpis, snapshot)
         if revenue is None and cost is None and settled is None:
             continue
         entries.append(
@@ -52,8 +63,8 @@ def goal_cash_flow(goals: list[Goal], kpis: KPIRegistry) -> list[dict]:
                 "revenue": revenue,
                 "cost": cost,
                 "settled": settled,
-                "profit": profit(goal, kpis),
-                "roi": roi(goal, kpis),
+                "profit": profit(goal, kpis, snapshot),
+                "roi": roi(goal, kpis, snapshot),
             }
         )
     return entries

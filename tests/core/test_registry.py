@@ -71,3 +71,48 @@ def test_a_non_preseeded_asset_still_uses_zero_arg_construction(tmp_path):
     # sample-business has no entrypoint at all -- unaffected by instances= for a different id
     with pytest.raises(UnsupportedVerb):
         registry.dispatch("sample-business", "start")
+
+
+def test_run_persists_exact_status_by_task_id(tmp_path):
+    from types import SimpleNamespace
+
+    class _Marker:
+        def run(self, **kwargs):
+            return {"status": "failed", "reason": "exact failure"}
+
+    records = discover_manifests([FIXTURES])
+    registry = Registry(
+        records,
+        store=JSONStore(tmp_path / "state.json"),
+        instances={"sample-agent": _Marker()},
+    )
+    task = SimpleNamespace(id="task-exact-result")
+
+    registry.dispatch("sample-agent", "run", task=task)
+
+    exact = registry.task_result(task.id, asset_id="sample-agent")
+
+    assert exact is not None
+    assert exact["asset_id"] == "sample-agent"
+    assert exact["status"] == "failed"
+    assert "exact failure" in exact["result"]
+
+
+def test_task_result_rejects_wrong_asset_id(tmp_path):
+    from types import SimpleNamespace
+
+    class _Marker:
+        def run(self, **kwargs):
+            return {"status": "done"}
+
+    records = discover_manifests([FIXTURES])
+    registry = Registry(
+        records,
+        store=JSONStore(tmp_path / "state.json"),
+        instances={"sample-agent": _Marker()},
+    )
+    task = SimpleNamespace(id="task-asset-match")
+
+    registry.dispatch("sample-agent", "run", task=task)
+
+    assert registry.task_result(task.id, asset_id="other-asset") is None

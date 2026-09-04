@@ -44,3 +44,41 @@ def executive_discovery_enabled() -> bool:
     exactly as it does now; this module's code existing in the working
     tree changes nothing on its own."""
     return bool(os.environ.get("ATLAS_EXECUTIVE_DISCOVERY_ENABLED"))
+
+
+def video_research_enabled() -> bool:
+    """Whether autonomous Video Research source discovery may create real
+    video_research Tasks.
+
+    Off by default. The VideoResearchAsset itself may exist and be directly
+    dispatchable while this bridge remains completely inert. This separation
+    is deliberate because discovering a YouTube source can consume YouTube
+    API quota and executing the resulting Task can consume Gemini usage.
+    """
+    return bool(os.environ.get("ATLAS_VIDEO_RESEARCH_ENABLED"))
+
+
+
+def sales_sync_enabled() -> bool:
+    """Whether autonomous real financial synchronization may run in tick().
+
+    Off by default. When enabled, ATLAS may make authenticated read-only
+    Digistore24 financial API calls and persist only attributable,
+    idempotent real financial events into KPI/Ledger.
+    """
+    return bool(os.environ.get("ATLAS_SALES_SYNC_ENABLED"))
+
+
+
+def pattern_hypothesis_enabled() -> bool:
+    """Whether Stage 7 / Layer 2 may autonomously scan newly-arrived
+    durable Findings and form bounded hypothesis Claims.
+
+    Off by default. When disabled, the production tick performs zero
+    semantic-selection/reasoning AI calls for this capability.
+
+    Enabling this does NOT grant execution authority: the Layer-2 bridge
+    may persist Claim knowledge only. It cannot create/dispatch Tasks,
+    Goals, Decisions, campaigns, spending, publishing, or other actions.
+    """
+    return bool(os.environ.get("ATLAS_PATTERN_HYPOTHESIS_ENABLED"))
