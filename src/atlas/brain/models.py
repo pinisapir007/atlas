@@ -119,6 +119,9 @@ class Task:
     status: str = "proposed"
     # proposed -> prioritized -> ready|pending_approval -> delegated ->
     # in_progress -> done|failed|blocked
+    # pending_approval -> superseded is also terminal for work that became
+    # obsolete because a newer Decision Engine verdict no longer supports
+    # the proposal. It is neither failure nor owner rejection.
     assigned_asset_id: str | None = None
     # Set only by atlas.brain.pipeline_advance when this task exists purely
     # to continue a specific in-progress Recruitment opportunity. None for
@@ -561,6 +564,8 @@ class Proposal:
     baseline_metrics: dict = field(default_factory=dict)
     status: str = "pending_approval"
     # pending_approval -> approved -> applied -> confirmed|needs_review | rejected
+    # pending_approval -> superseded when a newer Decision Engine verdict
+    # makes the structural proposal obsolete before the owner acts on it.
     id: str = field(default_factory=lambda: new_id("proposal"))
     created_at: str = field(default_factory=now)
     resolved_at: str | None = None

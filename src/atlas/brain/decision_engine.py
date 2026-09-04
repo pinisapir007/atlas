@@ -25,6 +25,43 @@ MIN_INDEPENDENT_SOURCES = 2
 MATERIALITY_THRESHOLD = 0.02
 
 
+def _has_pending_capability_proposal(category: str, memory: BrainMemory) -> bool:
+    """Whether this category has one real, currently-pending capability proposal.
+
+    Historical/paused Goals are not a permanent dedup lock. The signal is the
+    complete live triplet: active intelligence_<category> Goal + exact pending
+    create_asset Task + linked pending create_asset Proposal.
+    """
+    engine_id = f"intelligence_{category}"
+    expected_description = f"Evaluate building a real '{category}' execution channel"
+
+    goal_ids = {
+        g.id
+        for g in memory.goals()
+        if g.status == "active" and g.engine_id == engine_id
+    }
+    if not goal_ids:
+        return False
+
+    task_ids = {
+        t.id
+        for t in memory.tasks()
+        if t.goal_id in goal_ids
+        and t.category == "create_asset"
+        and t.status == "pending_approval"
+        and t.description == expected_description
+    }
+    if not task_ids:
+        return False
+
+    return any(
+        p.task_id in task_ids
+        and p.kind == "create_asset"
+        and p.status == "pending_approval"
+        for p in memory.proposals()
+    )
+
+
 def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: KPIRegistry) -> Decision:
     """The Decision Engine's core function — the only place in this
     codebase allowed to turn evidence into a business verdict (standing
@@ -84,7 +121,7 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
     # single call — engine_id is the same correlation key intelligence_advance
     # used before this split, preserved here since decide() is now the only
     # place that determines whether a capability gap was already flagged.
-    already_proposed = any(g.engine_id == f"intelligence_{category}" for g in memory.goals())
+    already_proposed = _has_pending_capability_proposal(category, memory)
 
     context = {
         "channel_ready": bool(channel),
@@ -109,18 +146,19 @@ def decide(category: str, knowledge: KnowledgeBase, memory: BrainMemory, kpis: K
             f"'{category}' is already actively pursued by {len(existing_goals)} goal(s) "
             f"({', '.join(g.id for g in existing_goals)}) — no new commitment needed"
         )
-    elif already_proposed:
-        verdict = "already_proposed"
-        reasoning = (
-            f"a capability-gap proposal for '{category}' already exists — awaiting founder decision, "
-            "not re-proposing"
-        )
-    elif not channel:  # None (unknown category) or set() (known category, no real channel yet) both mean no capability
-        verdict = "propose_capability"
-        reasoning = (
-            f"'{category}' has {independent_count} independently-sourced findings but no dispatchable execution "
-            "channel exists — proposing capability, never auto-creating one (standing rule, unchanged)"
-        )
+    elif not channel:  # None/empty means no dispatchable execution channel
+        if already_proposed:
+            verdict = "already_proposed"
+            reasoning = (
+                f"a capability-gap proposal for '{category}' is still genuinely pending — awaiting founder decision, "
+                "not re-proposing"
+            )
+        else:
+            verdict = "propose_capability"
+            reasoning = (
+                f"'{category}' has {independent_count} independently-sourced findings but no dispatchable execution "
+                "channel exists — proposing capability, never auto-creating one (standing rule, unchanged)"
+            )
     else:
         confidence_note = (
             f"confidence {result['score']:.3f} ({result['factors_available']}/{result['factors_total']} evidence factors)"

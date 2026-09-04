@@ -150,6 +150,23 @@ class BrainMemory:
             data["proposals"][proposal.id] = asdict(proposal)
         self._update(mutate)
 
+    def save_capability_supersession(self, goal: Goal, task: Task, proposal: Proposal) -> None:
+        """Atomically persist one capability-proposal supersession triplet.
+
+        Goal, Task, and Proposal all live in the same BrainMemory document.
+        Writing the three together prevents a crash between separate writes
+        from leaving a half-superseded state that could either block a future
+        proposal forever or create a duplicate proposal on the next tick.
+        Task.transition() must be called by the domain layer before this
+        method; this method only persists the already-decided states.
+        """
+        def mutate(data):
+            data["goals"][goal.id] = asdict(goal)
+            data["tasks"][task.id] = asdict(task)
+            data["proposals"][proposal.id] = asdict(proposal)
+
+        self._update(mutate)
+
     def proposals(self) -> list[Proposal]:
         return [Proposal(**p) for p in self._read()["proposals"].values()]
 

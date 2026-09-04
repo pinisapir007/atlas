@@ -1,4 +1,4 @@
-from atlas.brain.decision_apply import apply_decision
+from atlas.brain.decision_apply import apply_decision, supersede_pending_capability_proposals
 from atlas.brain.models import Decision
 
 
@@ -91,3 +91,52 @@ def test_already_proposed_produces_nothing():
 
     assert goal is None
     assert task is None
+
+def test_supersede_pending_capability_proposal_closes_triplet_atomically(tmp_path):
+    from atlas.brain.memory import BrainMemory
+    from atlas.brain.models import Goal, Proposal, Task
+
+    memory = BrainMemory(tmp_path / "brain.json")
+
+    goal = Goal(
+        description="Capability gap: youtube",
+        engine_id="intelligence_youtube",
+    )
+    task = Task(
+        goal_id=goal.id,
+        description="Evaluate building a real 'youtube' execution channel",
+        category="create_asset",
+    )
+    task.transition("pending_approval", "structural proposal")
+    proposal = Proposal(
+        task_id=task.id,
+        kind="create_asset",
+        rationale=task.description,
+    )
+
+    memory.save_goal(goal)
+    memory.save_task(task)
+    memory.save_proposal(proposal)
+
+    changed = supersede_pending_capability_proposals(
+        "youtube",
+        memory,
+        "new evidence no longer supports the proposal",
+    )
+
+    assert changed == 1
+    assert memory.get_goal(goal.id).status == "paused"
+    assert memory.get_task(task.id).status == "superseded"
+    assert memory.get_proposal(proposal.id).status == "superseded"
+    assert memory.get_proposal(proposal.id).resolved_at is not None
+    assert memory.completed_task_total() == 0
+
+    # Idempotent: a repeated reconciliation has nothing left to change.
+    assert (
+        supersede_pending_capability_proposals(
+            "youtube",
+            memory,
+            "new evidence no longer supports the proposal",
+        )
+        == 0
+    )

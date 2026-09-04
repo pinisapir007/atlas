@@ -91,7 +91,7 @@ class Reporter:
             "open_proposals": [
                 {"id": p.id, "kind": p.kind, "rationale": p.rationale, "status": p.status}
                 for p in proposals
-                if p.status != "rejected"
+                if p.status not in ("rejected", "superseded")
             ],
             "kpi_deltas": {name: kpis.delta(name, since) for name in kpis.names()},
             "cash_flow": goal_cash_flow(goals, kpis),

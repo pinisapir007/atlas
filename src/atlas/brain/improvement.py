@@ -6,7 +6,7 @@ from atlas.brain.models import Goal, Task
 MIN_SAMPLE = 3
 SUCCESS_RATE_THRESHOLD = 0.5
 DEFAULT_COOLDOWN_DAYS = 30
-RESOLVED_STATUSES = {"done", "failed", "blocked", "rejected"}
+RESOLVED_STATUSES = {"done", "failed", "blocked", "rejected", "superseded"}
 
 # Generic stagnation detection is intentionally narrow.
 #

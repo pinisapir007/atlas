@@ -1,6 +1,67 @@
 from atlas.brain.confidence import BOOTSTRAP_TASK_CATEGORY, OPPORTUNITY_DISCOVERY_BOOTSTRAP_OVERRIDES
 from atlas.brain.feature_flags import opportunity_discovery_v1_enabled
-from atlas.brain.models import Decision, Goal, Task
+from atlas.brain.models import Decision, Goal, Task, now
+
+
+def supersede_pending_capability_proposals(category: str, memory, reason: str) -> int:
+    """Close stale category-level capability proposals without fabricating failure.
+
+    Only the exact Decision-Engine capability proposal is eligible:
+    engine_id == intelligence_<category>, Task.category == create_asset, and
+    the exact category-level execution-channel wording produced below.
+    Brand/influencer create_asset proposals are therefore never touched.
+
+    The Goal is paused, the Task becomes superseded, and the Proposal becomes
+    superseded. BrainMemory persists the triplet atomically. The operation is
+    idempotent and creates no reminder/sentinel/manual cleanup tail.
+    """
+    engine_id = f"intelligence_{category}"
+    expected_description = f"Evaluate building a real '{category}' execution channel"
+
+    goals = {g.id: g for g in memory.goals()}
+    tasks = {t.id: t for t in memory.tasks()}
+    changed = 0
+
+    for proposal in memory.proposals():
+        if proposal.kind != "create_asset":
+            continue
+        if proposal.status not in ("pending_approval", "superseded"):
+            continue
+
+        task = tasks.get(proposal.task_id)
+        if task is None:
+            continue
+        goal = goals.get(task.goal_id)
+        if goal is None:
+            continue
+
+        if goal.engine_id != engine_id:
+            continue
+        if task.category != "create_asset":
+            continue
+        if task.description != expected_description:
+            continue
+
+        touched = False
+
+        if task.status == "pending_approval":
+            task.transition("superseded", reason)
+            touched = True
+
+        if proposal.status == "pending_approval":
+            proposal.status = "superseded"
+            proposal.resolved_at = now()
+            touched = True
+
+        if goal.status == "active":
+            goal.status = "paused"
+            touched = True
+
+        if touched:
+            memory.save_capability_supersession(goal, task, proposal)
+            changed += 1
+
+    return changed
 
 
 def apply_decision(decision: Decision) -> tuple[Goal | None, Task | None]:

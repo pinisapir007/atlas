@@ -9,7 +9,7 @@ from atlas.brain.campaign_advance import advance_decision_driven_campaigns
 from atlas.brain.content_factory_advance import advance_content_factory
 from atlas.brain.conversation_memory import ConversationMemory
 from atlas.brain.creative_agent_advance import advance_creative_agent
-from atlas.brain.decision_apply import apply_decision
+from atlas.brain.decision_apply import apply_decision, supersede_pending_capability_proposals
 from atlas.brain.decision_engine import has_materially_changed
 from atlas.brain.decisions import DecisionLog
 from atlas.brain.deep_research_advance import advance_deep_research
@@ -412,6 +412,23 @@ class CEOBrain:
         # and everything they compute, are completely unchanged.
         decisions_and_tasks: list[tuple[Decision, Task | None]] = []
         for decision in decide_all_with_discovery(self.knowledge, self.memory, self.kpis):
+            # A pending capability proposal is only valid while the fresh
+            # Decision Engine verdict still supports that proposal. If the
+            # evidence falls below threshold, a real channel appears, or any
+            # other verdict supersedes it, close the old Goal/Task/Proposal
+            # automatically. This reconciliation runs even when the verdict
+            # itself is unchanged from the latest persisted Decision, so old
+            # runtime state converges without a one-off/manual cleanup hook.
+            if decision.verdict not in ("propose_capability", "already_proposed"):
+                supersede_pending_capability_proposals(
+                    decision.category,
+                    self.memory,
+                    reason=(
+                        f"current Decision Engine verdict {decision.verdict!r} "
+                        "no longer supports this capability proposal"
+                    ),
+                )
+
             previous = self.decisions.latest_for_category(decision.category)
             if previous is not None:
                 if not has_materially_changed(previous, decision):

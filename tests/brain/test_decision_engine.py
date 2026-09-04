@@ -2,7 +2,7 @@ from atlas.brain.decision_engine import decide, decide_all, has_materially_chang
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.memory import BrainMemory
-from atlas.brain.models import Decision, Finding, Goal, Task
+from atlas.brain.models import Decision, Finding, Goal, Task, Proposal
 
 
 def _kb(tmp_path):
@@ -235,17 +235,85 @@ def test_propose_capability_when_no_channel_exists(tmp_path):
     assert decision.context["channel_ready"] is False
 
 
-def test_already_proposed_when_a_capability_gap_goal_already_exists(tmp_path):
+def test_already_proposed_requires_a_real_pending_capability_triplet(tmp_path):
     kb = _kb(tmp_path)
     kb.save_finding(_sourced_finding("youtube", 1))
     kb.save_finding(_sourced_finding("youtube", 2))
     memory = _memory(tmp_path)
     kpis = KPIRegistry(memory)
-    memory.save_goal(Goal(description="Capability gap: youtube", engine_id="intelligence_youtube"))
+
+    goal = Goal(description="Capability gap: youtube", engine_id="intelligence_youtube")
+    task = Task(
+        goal_id=goal.id,
+        description="Evaluate building a real 'youtube' execution channel",
+        category="create_asset",
+    )
+    task.transition("pending_approval", "structural proposal")
+    proposal = Proposal(
+        task_id=task.id,
+        kind="create_asset",
+        rationale=task.description,
+    )
+
+    memory.save_goal(goal)
+    memory.save_task(task)
+    memory.save_proposal(proposal)
 
     decision = decide("youtube", kb, memory, kpis)
 
     assert decision.verdict == "already_proposed"
+
+
+def test_historical_capability_goal_without_pending_proposal_does_not_lock_category(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(_sourced_finding("youtube", 1))
+    kb.save_finding(_sourced_finding("youtube", 2))
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    memory.save_goal(
+        Goal(
+            description="old capability gap",
+            engine_id="intelligence_youtube",
+            status="paused",
+        )
+    )
+
+    decision = decide("youtube", kb, memory, kpis)
+
+    assert decision.verdict == "propose_capability"
+
+
+def test_real_channel_is_not_blocked_by_stale_capability_proposal(tmp_path):
+    kb = _kb(tmp_path)
+    kb.save_finding(_sourced_finding("affiliate", 1))
+    kb.save_finding(_sourced_finding("affiliate", 2))
+    memory = _memory(tmp_path)
+    kpis = KPIRegistry(memory)
+
+    gap_goal = Goal(
+        description="old affiliate capability gap",
+        engine_id="intelligence_affiliate",
+    )
+    gap_task = Task(
+        goal_id=gap_goal.id,
+        description="Evaluate building a real 'affiliate' execution channel",
+        category="create_asset",
+    )
+    gap_task.transition("pending_approval", "old structural proposal")
+    gap_proposal = Proposal(
+        task_id=gap_task.id,
+        kind="create_asset",
+        rationale=gap_task.description,
+    )
+
+    memory.save_goal(gap_goal)
+    memory.save_task(gap_task)
+    memory.save_proposal(gap_proposal)
+
+    decision = decide("affiliate", kb, memory, kpis)
+
+    assert decision.verdict == "invest"
 
 
 def test_decision_carries_full_citation_and_risks(tmp_path):
