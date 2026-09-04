@@ -1,6 +1,7 @@
 from atlas.app import _normalize, run_app
 from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.conversation_memory import ConversationMemory
 from atlas.brain.decisions import DecisionLog
 from atlas.brain.investigations import InvestigationStore
 from atlas.brain.knowledge import KnowledgeBase
@@ -19,6 +20,7 @@ from atlas.orchestrator.registry import ExecutionPlanRegistry
 def _brain(tmp_path):
     return CEOBrain(
         memory=BrainMemory(tmp_path / "brain.json"),
+        conversations=ConversationMemory(tmp_path / "conversations.json"),
         registry=Registry(store=JSONStore(tmp_path / "state.json")),
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
         decisions=DecisionLog(tmp_path / "decisions.json"),
