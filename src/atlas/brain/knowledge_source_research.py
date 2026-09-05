@@ -83,6 +83,7 @@ def _observe_validated_source(
     ai_provider: AIProvider | None = None,
     *,
     require_grounded_text: bool = False,
+    plugin_override: KnowledgeSourcePlugin | None = None,
 ) -> tuple[KnowledgeSourcePlugin, PageObservation, str]:
     """One shared source gate for both legacy and atomic collection.
 
@@ -94,7 +95,11 @@ def _observe_validated_source(
     the exact same validated observation and cannot drift into two
     different definitions of trustworthy evidence.
     """
-    plugin = select_plugin(source_ref)
+    plugin = (
+        plugin_override
+        if plugin_override is not None
+        else select_plugin(source_ref)
+    )
 
     if require_grounded_text and not getattr(plugin, "raw_text_grounded", False):
         raise AtomicTextSourceUnsupported(
@@ -329,6 +334,7 @@ def collect_atomic_evidence_from_source(
     extract: dict[str, str] | None = None,
     ai_provider: AIProvider | None = None,
     *,
+    plugin_override: KnowledgeSourcePlugin | None = None,
     provider: str = "",
     max_chunk_chars: int = MAX_CHUNK_CHARS,
     max_atomics_per_chunk: int = MAX_ATOMICS_PER_CHUNK,
@@ -354,7 +360,11 @@ def collect_atomic_evidence_from_source(
     # capability. Raw text uses exact quote verification. Native media
     # uses MediaEvidence and must never pretend Gemini interpretation is
     # character-for-character grounded source text.
-    plugin = select_plugin(source_ref)
+    plugin = (
+        plugin_override
+        if plugin_override is not None
+        else select_plugin(source_ref)
+    )
 
     if not getattr(plugin, "raw_text_grounded", False):
         observe_evidence = getattr(plugin, "observe_evidence", None)
@@ -415,6 +425,7 @@ def collect_atomic_evidence_from_source(
         extract=extract,
         ai_provider=ai_provider,
         require_grounded_text=True,
+        plugin_override=plugin,
     )
 
     atomic_provider = (

@@ -23,7 +23,10 @@ Every invocation processes at most one eligible pending source.
 from atlas.brain.audio_plugin import (
     PathNotApprovedError as AudioPathNotApprovedError,
 )
-from atlas.brain.browser_plugin import DomainNotApprovedError
+from atlas.brain.browser_plugin import (
+    BrowserPlugin,
+    DomainNotApprovedError,
+)
 from atlas.brain.document_plugin import (
     PathNotApprovedError as DocumentPathNotApprovedError,
 )
@@ -42,6 +45,9 @@ from atlas.brain.knowledge_source_research import (
 )
 from atlas.brain.models import now
 from atlas.brain.pdf_plugin import PDFPathNotApprovedError
+from atlas.brain.research_mission_public_https import (
+    ResearchMissionPublicHTTPSPolicy,
+)
 from atlas.brain.research_missions import (
     ResearchMissionSource,
     ResearchMissionStore,
@@ -170,6 +176,17 @@ def advance_research_mission_sources(
             if plugin.name == "youtube":
                 continue
 
+            # Research Mission has founder-approved PUBLIC HTTPS read scope
+            # without globally expanding BrowserAllowlist. Only a structurally
+            # browser-routed source receives this dedicated BrowserPlugin.
+            # Local Document/PDF/Image/Audio/Video sources continue through
+            # their existing ResourceAllowlist-protected plugins unchanged.
+            collection_plugin = plugin
+            if plugin.name == "browser":
+                collection_plugin = BrowserPlugin(
+                    allowlist=ResearchMissionPublicHTTPSPolicy()
+                )
+
             # Persist the consumed attempt BEFORE the external/source call.
             # If the real process is interrupted, durable state still records
             # that an attempt began rather than silently forgetting it.
@@ -185,6 +202,7 @@ def advance_research_mission_sources(
                     task_description=source.task_description,
                     knowledge=knowledge,
                     ai_provider=ai_provider,
+                    plugin_override=collection_plugin,
                     provider=plugin.name,
                 )
 
