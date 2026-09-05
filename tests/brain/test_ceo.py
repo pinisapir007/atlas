@@ -9,6 +9,10 @@ from atlas.brain.marketplace_catalog import MarketplaceCatalogStore
 from atlas.brain.memory import BrainMemory
 from atlas.brain.models import Finding, Goal, Task
 from atlas.brain.opportunities import OpportunityStore
+from atlas.brain.research_missions import (
+    ResearchMission,
+    ResearchMissionStore,
+)
 from atlas.campaign.registry import CampaignRegistry, create_campaign, set_status
 from atlas.core.registry import Registry
 from atlas.core.store import JSONStore
@@ -65,6 +69,9 @@ def _brain(tmp_path, *, allow_demo_assets=False):
         opportunities=OpportunityStore(tmp_path / ".atlas" / "opportunities.json"),
         marketplace_catalog=MarketplaceCatalogStore(tmp_path / ".atlas" / "marketplace_catalog.json"),
         investigations=InvestigationStore(tmp_path / ".atlas" / "investigations.json"),
+        research_missions=ResearchMissionStore(
+            tmp_path / ".atlas" / "research_missions.json"
+        ),
     )
 
 
@@ -997,3 +1004,303 @@ def test_tick_wires_layer2_with_start_of_tick_finding_baseline(
     assert memory is brain.memory
     assert knowledge is brain.knowledge
     assert baseline_ids == {existing.id}
+
+
+def test_tick_wires_research_mission_bridges_after_monitor_in_exact_order(
+    tmp_path,
+    monkeypatch,
+):
+    """CEO wiring only: Monitor must run before Research Mission work, and
+    mission lifecycle closure must run after both concrete-source bridges.
+
+    Every bridge is replaced here, so this test performs zero source,
+    browser, YouTube, Gemini, or other external calls.
+    """
+    import atlas.brain.ceo as ceo_module
+
+    brain = _brain(tmp_path)
+
+    calls = []
+
+    def fake_monitor_sync(tasks, registry, memory, kpis):
+        calls.append(
+            (
+                "monitor",
+                memory,
+                brain.knowledge,
+                None,
+            )
+        )
+
+    def fake_generic(store, knowledge, *, ai_provider=None):
+        calls.append(
+            (
+                "generic",
+                store,
+                knowledge,
+                ai_provider,
+            )
+        )
+        return []
+
+    def fake_youtube(store, memory, knowledge):
+        calls.append(
+            (
+                "youtube",
+                store,
+                knowledge,
+                memory,
+            )
+        )
+        return []
+
+    def fake_lifecycle(store):
+        calls.append(
+            (
+                "lifecycle",
+                store,
+                None,
+                None,
+            )
+        )
+        return []
+
+    brain.monitor.sync = fake_monitor_sync
+
+    monkeypatch.setattr(
+        ceo_module,
+        "advance_research_mission_sources",
+        fake_generic,
+    )
+    monkeypatch.setattr(
+        ceo_module,
+        "advance_research_mission_youtube",
+        fake_youtube,
+    )
+    monkeypatch.setattr(
+        ceo_module,
+        "advance_research_missions",
+        fake_lifecycle,
+    )
+
+    brain.tick()
+
+    names = [entry[0] for entry in calls]
+
+    assert names == [
+        "monitor",
+        "generic",
+        "youtube",
+        "lifecycle",
+    ]
+
+    generic = calls[1]
+    youtube = calls[2]
+    lifecycle = calls[3]
+
+    assert generic[1] is brain.research_missions
+    assert generic[2] is brain.knowledge
+    assert generic[3] is None
+
+    assert youtube[1] is brain.research_missions
+    assert youtube[2] is brain.knowledge
+    assert youtube[3] is brain.memory
+
+    assert lifecycle[1] is brain.research_missions
+
+
+def test_tick_research_mission_is_exact_noop_when_feature_flag_off(
+    tmp_path,
+    monkeypatch,
+):
+    """Production safety contract: merely wiring Research Mission into the
+    CEO loop must not mutate an existing mission/source while its feature
+    flag is disabled.
+    """
+    monkeypatch.delenv(
+        "ATLAS_RESEARCH_MISSION_ENABLED",
+        raising=False,
+    )
+    monkeypatch.delenv(
+        "ATLAS_VIDEO_RESEARCH_ENABLED",
+        raising=False,
+    )
+
+    brain = _brain(tmp_path)
+
+    mission = ResearchMission(
+        goal_id="goal-not-required-while-disabled",
+        objective="Disabled mission must remain untouched",
+        source_discovery_complete=True,
+    )
+    brain.research_missions.save_mission(mission)
+
+    source = brain.research_missions.add_source(
+        mission.id,
+        "https://example.com/research",
+        "ugc",
+        "Observe research source",
+    )
+
+    before_mission = brain.research_missions.get_mission(
+        mission.id
+    )
+    before_source = brain.research_missions.get_source(
+        source.id
+    )
+
+    brain.tick()
+
+    after_mission = brain.research_missions.get_mission(
+        mission.id
+    )
+    after_source = brain.research_missions.get_source(
+        source.id
+    )
+
+    assert after_mission == before_mission
+    assert after_source == before_source
+    assert after_mission.status == "active"
+    assert after_source.status == "pending"
+    assert after_source.attempts == 0
+
+
+def test_tick_reconciles_existing_youtube_evidence_then_closes_mission_same_tick(
+    tmp_path,
+    monkeypatch,
+):
+    """End-to-end CEO ordering qualification without any external call.
+
+    An already-existing exact timestamped YouTube Finding must be reconciled
+    to its pending ResearchMissionSource, then lifecycle closure must observe
+    that processed source in the SAME tick and complete the mission.
+    """
+    monkeypatch.setenv(
+        "ATLAS_RESEARCH_MISSION_ENABLED",
+        "1",
+    )
+    monkeypatch.setenv(
+        "ATLAS_VIDEO_RESEARCH_ENABLED",
+        "1",
+    )
+
+    # Keep Executive Discovery's separate autonomous YouTube-source search
+    # bridge disabled. This test qualifies only Research Mission wiring and
+    # must never perform YouTube discovery/network work.
+    monkeypatch.delenv(
+        "ATLAS_EXECUTIVE_DISCOVERY_ENABLED",
+        raising=False,
+    )
+
+    brain = _brain(tmp_path)
+
+    youtube_url = (
+        "https://www.youtube.com/watch?v="
+        "researchMissionQualification123"
+    )
+
+    mission = ResearchMission(
+        goal_id="goal-existing-evidence-only",
+        objective="Reconcile already-observed YouTube evidence",
+        source_discovery_complete=True,
+    )
+    brain.research_missions.save_mission(mission)
+
+    source = brain.research_missions.add_source(
+        mission.id,
+        youtube_url,
+        "ugc",
+        "Use already observed timestamped YouTube evidence",
+        source_kind="youtube",
+    )
+
+    finding = Finding(
+        source="video_research",
+        category="ugc",
+        description="Existing timestamped video observation",
+        evidence=youtube_url + " @ 00:12",
+    )
+    brain.knowledge.save_finding(finding)
+
+    brain.tick()
+
+    restored_source = brain.research_missions.get_source(
+        source.id
+    )
+    restored_mission = brain.research_missions.get_mission(
+        mission.id
+    )
+
+    assert restored_source.status == "processed"
+    assert restored_source.finding_ids == [finding.id]
+    assert restored_source.attempts == 0
+    assert restored_source.task_id == ""
+
+    assert restored_mission.status == "completed"
+    assert restored_mission.completed_at
+
+
+def test_default_ceo_research_mission_store_read_is_side_effect_free_when_disabled(
+    tmp_path,
+    monkeypatch,
+):
+    """Default CEO construction must not create research_missions.json while
+    Research Mission is disabled, even when the loop reads the empty store.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(
+        "ATLAS_RESEARCH_MISSION_ENABLED",
+        raising=False,
+    )
+    monkeypatch.delenv(
+        "ATLAS_VIDEO_RESEARCH_ENABLED",
+        raising=False,
+    )
+    monkeypatch.delenv(
+        "ATLAS_EXECUTIVE_DISCOVERY_ENABLED",
+        raising=False,
+    )
+    monkeypatch.delenv(
+        "ATLAS_PATTERN_HYPOTHESIS_ENABLED",
+        raising=False,
+    )
+
+    path = tmp_path / ".atlas" / "research_missions.json"
+
+    brain = CEOBrain(
+        memory=BrainMemory(tmp_path / "brain.json"),
+        knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
+        intelligence_index=IntelligenceIndex(
+            tmp_path / ".atlas" / "intelligence_index.json"
+        ),
+        decisions=DecisionLog(tmp_path / "decisions.json"),
+        ledger=Ledger(tmp_path / "ledger.json"),
+        campaigns=CampaignRegistry(
+            tmp_path / ".atlas" / "campaigns.json"
+        ),
+        influencers=InfluencerRegistry(
+            tmp_path / ".atlas" / "influencers.json"
+        ),
+        execution_plans=ExecutionPlanRegistry(
+            tmp_path / ".atlas" / "execution_plans.json"
+        ),
+        affiliate_store=AffiliateStore(
+            tmp_path / ".atlas" / "affiliate_intelligence.json"
+        ),
+        opportunities=OpportunityStore(
+            tmp_path / ".atlas" / "opportunities.json"
+        ),
+        marketplace_catalog=MarketplaceCatalogStore(
+            tmp_path / ".atlas" / "marketplace_catalog.json"
+        ),
+        investigations=InvestigationStore(
+            tmp_path / ".atlas" / "investigations.json"
+        ),
+    )
+
+    assert not path.exists()
+
+    # Empty direct read is part of the safety contract established by the
+    # pre-wiring audit.
+    assert brain.research_missions.active_missions() == []
+    assert not path.exists()

@@ -42,6 +42,10 @@ from atlas.brain.planner import Planner, SimplePlanner
 from atlas.brain.prioritizer import Prioritizer, SimplePrioritizer
 from atlas.brain.reasoning_advance import advance_opportunity_comparisons
 from atlas.brain.reporter import Reporter
+from atlas.brain.research_mission_advance import advance_research_missions
+from atlas.brain.research_mission_source_advance import advance_research_mission_sources
+from atlas.brain.research_mission_youtube_advance import advance_research_mission_youtube
+from atlas.brain.research_missions import ResearchMissionStore
 from atlas.brain.revenue_strategy import commit_ready_opportunities
 from atlas.brain.sales_sync import advance_sales_sync
 from atlas.brain.risk import RiskPolicy
@@ -89,6 +93,7 @@ class CEOBrain:
         opportunities: OpportunityStore | None = None,
         marketplace_catalog: MarketplaceCatalogStore | None = None,
         investigations: InvestigationStore | None = None,
+        research_missions: ResearchMissionStore | None = None,
         intelligence_index: IntelligenceIndex | None = None,
     ):
         self.memory = memory if memory is not None else BrainMemory()
@@ -153,6 +158,18 @@ class CEOBrain:
         # bridges below simply do nothing, unchanged from today's behavior.
         self.marketplace_catalog = marketplace_catalog if marketplace_catalog is not None else MarketplaceCatalogStore()
         self.investigations = investigations if investigations is not None else InvestigationStore()
+
+        # Durable Research Mission orchestration store. Construction and
+        # empty reads are side-effect-free, so the default store does not
+        # create .atlas/research_missions.json merely because CEOBrain
+        # exists. All three advance bridges are independently feature-gated
+        # and therefore remain exact no-ops while Research Mission is off.
+        self.research_missions = (
+            research_missions
+            if research_missions is not None
+            else ResearchMissionStore()
+        )
+
         self.kpis = KPIRegistry(self.memory)
         self.delegator = Delegator(self.memory)
         self.monitor = Monitor()
@@ -230,6 +247,33 @@ class CEOBrain:
             self.memory.save_task(task)
 
         self.monitor.sync(self.memory.tasks(), self.registry, self.memory, self.kpis)
+
+        # Research Mission orchestration.
+        #
+        # Ordering is deliberate:
+        # 1. Monitor above reconciles any video_research Task that finished
+        #    during the previous dispatch lifecycle.
+        # 2. Generic concrete sources may create durable Findings.
+        # 3. YouTube reconciles those normal Task results or creates at most
+        #    one existing video_research Task for a pending YouTube source.
+        # 4. Lifecycle closure runs last so a Mission cannot close before
+        #    every source had this tick's opportunity to advance.
+        #
+        # The bridges themselves own their feature gates. With
+        # ATLAS_RESEARCH_MISSION_ENABLED unset this entire sequence is an
+        # exact no-op and does not create the ResearchMissionStore file.
+        advance_research_mission_sources(
+            self.research_missions,
+            self.knowledge,
+        )
+        advance_research_mission_youtube(
+            self.research_missions,
+            self.memory,
+            self.knowledge,
+        )
+        advance_research_missions(
+            self.research_missions,
+        )
 
         for opportunity_task in absorb_opportunities(self.memory.tasks(), self.registry, self.memory, self.knowledge):
             self.memory.save_task(opportunity_task)
