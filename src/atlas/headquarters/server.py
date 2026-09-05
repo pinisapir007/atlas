@@ -310,7 +310,7 @@ def _real_state(brain: CEOBrain) -> dict:
         "departments": departments,
         "active_asset_ids": _real_active_asset_ids(brain),
         "platform_connections": _real_platform_connections(),
-        "kpis": view["kpis"],
+        "kpis": view["live_kpis"],
         "cash_flow": view["cash_flow"],
         "warnings": warnings,
         "activity": activity,

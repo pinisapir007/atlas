@@ -86,6 +86,34 @@ def test_view_includes_kpis(tmp_path):
     assert view["kpis"]["revenue_goal-x"] == 100.0
 
 
+def test_live_kpis_include_only_metrics_scoped_to_active_goals(tmp_path):
+    brain = _brain(tmp_path)
+
+    active = brain.add_goal("Active business")
+    retired = brain.add_goal("Retired business")
+    retired.status = "paused"
+    brain.memory.save_goal(retired)
+
+    active_name = f"revenue_{active.id}"
+    retired_name = f"revenue_{retired.id}"
+
+    brain.kpis.record(active_name, 100.0)
+    brain.kpis.record(retired_name, 200.0)
+    brain.kpis.record("research_attempts_saas", 2.0)
+
+    view = build_console_view(brain)
+
+    # Durable diagnostic history remains untouched.
+    assert view["kpis"][active_name] == 100.0
+    assert view["kpis"][retired_name] == 200.0
+    assert view["kpis"]["research_attempts_saas"] == 2.0
+
+    # The live dashboard projection contains only current-goal metrics.
+    assert view["live_kpis"] == {
+        active_name: 100.0,
+    }
+
+
 def test_view_includes_cash_flow_only_for_goals_with_revenue_or_cost(tmp_path):
     brain = _brain(tmp_path)
     tracked = brain.add_goal("Recruitment placements")
@@ -100,6 +128,42 @@ def test_view_includes_cash_flow_only_for_goals_with_revenue_or_cost(tmp_path):
     assert entry["goal_id"] == tracked.id
     assert entry["profit"] == 600.0
     assert entry["roi"] == 1.5
+
+
+def test_live_cash_flow_excludes_paused_goal_history(tmp_path):
+    brain = _brain(tmp_path)
+
+    active = brain.add_goal("Active revenue goal")
+    retired = brain.add_goal("Retired revenue goal")
+    retired.status = "paused"
+    brain.memory.save_goal(retired)
+
+    brain.kpis.record(
+        f"revenue_{active.id}",
+        1000.0,
+    )
+    brain.kpis.record(
+        f"cost_{active.id}",
+        400.0,
+    )
+
+    brain.kpis.record(
+        f"revenue_{retired.id}",
+        9000.0,
+    )
+    brain.kpis.record(
+        f"cost_{retired.id}",
+        1000.0,
+    )
+
+    view = build_console_view(brain)
+
+    assert {
+        entry["goal_id"]
+        for entry in view["cash_flow"]
+    } == {
+        active.id,
+    }
 
 
 def test_summarize_department_report_uses_by_stage_or_by_status():
@@ -149,14 +213,45 @@ def test_find_stale_kpis_flags_old_readings(tmp_path):
     assert "fresh_metric" not in stale_names
 
 
-def test_find_warnings_detects_maya_stopped_and_revenue_idle(tmp_path, monkeypatch):
+def test_find_warnings_suppresses_inactive_maya_and_revenue(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     brain = _brain(tmp_path)
 
     warnings = find_warnings(brain)
 
-    assert any("MAYA is stopped" in w for w in warnings)
-    assert any("Revenue channels are idle" in w for w in warnings)
+    assert not any("MAYA is stopped" in w for w in warnings)
+    assert not any("Revenue is idle" in w for w in warnings)
+
+
+def test_find_warnings_detects_stopped_or_idle_assets_with_live_work(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    brain = _brain(tmp_path)
+    goal = brain.add_goal("exercise live asset warning semantics")
+
+    brain.memory.save_task(
+        Task(
+            goal_id=goal.id,
+            description="live MAYA work",
+            category="general",
+            status="delegated",
+            assigned_asset_id="maya",
+        )
+    )
+
+    brain.memory.save_task(
+        Task(
+            goal_id=goal.id,
+            description="live revenue work",
+            category="general",
+            status="in_progress",
+            assigned_asset_id="revenue",
+        )
+    )
+
+    warnings = find_warnings(brain)
+
+    assert any("MAYA is stopped while real work is assigned" in w for w in warnings)
+    assert any("Revenue is idle while real work is assigned" in w for w in warnings)
 
 
 def test_find_warnings_detects_a_pinned_identity_conflict(tmp_path):
@@ -202,14 +297,25 @@ def test_find_warnings_detects_pending_redesign_proposals(tmp_path):
     assert any("KPI flat for 3 periods" in w for w in warnings)
 
 
-def test_find_warnings_detects_stale_kpis(tmp_path):
+def test_stale_kpis_remain_diagnostic_but_not_live_warnings(tmp_path):
     brain = _brain(tmp_path)
     old_at = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
     brain.memory.record_kpi("ancient_metric", 1.0, old_at)
 
+    stale = find_stale_kpis(
+        brain,
+        threshold_hours=1.0,
+    )
     warnings = find_warnings(brain)
 
-    assert any("ancient_metric" in w for w in warnings)
+    assert "ancient_metric" in {
+        name
+        for name, _ in stale
+    }
+    assert not any(
+        "ancient_metric" in warning
+        for warning in warnings
+    )
 
 
 def test_recent_activity_returns_tail_of_log(tmp_path):

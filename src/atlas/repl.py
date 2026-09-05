@@ -32,7 +32,7 @@ HELP_TEXT = """Commands:
   campaigns      opportunities currently in the content/marketing pipeline
   opportunities  the full affiliate opportunity list, with stage and score
   kpi            all recorded KPIs
-  warnings       MAYA/Revenue/redesign/stale-KPI warnings
+  warnings       current actionable operational warnings
   activity       recent log activity
   exit           quit the console"""
 

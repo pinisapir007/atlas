@@ -115,14 +115,14 @@ def test_approve_unknown_id_reports_error_not_crash(tmp_path):
     assert "error" in lines[0]
 
 
-def test_warnings_command(tmp_path, monkeypatch):
+def test_warnings_command_with_no_actionable_warning(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     brain = _brain(tmp_path)
     lines, printer = _capture()
 
     dispatch(brain, "warnings", print_fn=printer)
 
-    assert any("MAYA is stopped" in line for line in lines)
+    assert any("No warnings." in line for line in lines)
 
 
 def test_activity_command_with_no_activity(tmp_path):

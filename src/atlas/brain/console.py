@@ -49,9 +49,34 @@ def build_console_view(brain: CEOBrain) -> dict:
             departments[record.id] = {"status": "error", "detail": str(exc)}
 
     kpi_snapshot = brain.kpis.snapshot()
+
+    # Full KPI history remains available to diagnostics/CLI exactly as
+    # before. Headquarters gets a separate current-business projection:
+    # only metrics explicitly scoped to a goal that is active right now.
+    # This keeps retired goals, experiments and research-attempt counters
+    # in durable history without presenting them as live company KPIs.
     kpis = {
         name: (history[-1]["value"] if history else None)
         for name, history in sorted(kpi_snapshot.items())
+    }
+
+    active_goals = [
+        goal
+        for goal in goals
+        if goal.status == "active"
+    ]
+    active_goal_ids = {
+        goal.id
+        for goal in active_goals
+    }
+
+    live_kpis = {
+        name: value
+        for name, value in kpis.items()
+        if any(
+            name.endswith(f"_{goal_id}")
+            for goal_id in active_goal_ids
+        )
     }
 
     return {
@@ -69,7 +94,12 @@ def build_console_view(brain: CEOBrain) -> dict:
         "blocked": blocked,
         "departments": departments,
         "kpis": kpis,
-        "cash_flow": goal_cash_flow(goals, brain.kpis, kpi_snapshot),
+        "live_kpis": live_kpis,
+        "cash_flow": goal_cash_flow(
+            active_goals,
+            brain.kpis,
+            kpi_snapshot,
+        ),
     }
 
 
@@ -92,10 +122,10 @@ def find_stale_kpis(brain: CEOBrain, threshold_hours: float = DEFAULT_STALE_KPI_
 
 
 def find_warnings(brain: CEOBrain, view: dict | None = None) -> list[str]:
-    """Requirement: clearly surface MAYA stopped, Revenue idle, pending
-    redesign proposals, and stale KPIs — reusing exactly the data every
-    other command already reads (department report()s, memory.proposals(),
-    KPIRegistry history), no new detection mechanism.
+    """Surface current, actionable founder warnings from existing live
+    state. A stopped/idle department is a warning only while real work is
+    in flight against that asset. KPI age remains available through
+    find_stale_kpis() for diagnostics but is not itself a live warning.
 
     `view` is an optional, already-computed build_console_view(brain) —
     real bug, found live (2026-08-09) against real production-scale data
@@ -110,20 +140,45 @@ def find_warnings(brain: CEOBrain, view: dict | None = None) -> list[str]:
     warnings: list[str] = []
     view = view if view is not None else build_console_view(brain)
 
+    # A registered asset being stopped/idle is not itself a founder-facing
+    # problem. It becomes actionable only when real work is currently
+    # delegated to that asset. This uses the same in-flight semantics as
+    # Headquarters' active-asset indicator and Monitor.
+    active_asset_ids = {
+        task.assigned_asset_id
+        for task in brain.memory.tasks()
+        if task.status in {"delegated", "in_progress"}
+        and task.assigned_asset_id
+    }
+
     maya_report = view["departments"].get("maya")
-    if isinstance(maya_report, dict) and maya_report.get("status") == "stopped":
-        warnings.append("MAYA is stopped — no content/capability is currently running.")
+    if (
+        "maya" in active_asset_ids
+        and isinstance(maya_report, dict)
+        and maya_report.get("status") == "stopped"
+    ):
+        warnings.append(
+            "MAYA is stopped while real work is assigned to it."
+        )
 
     revenue_report = view["departments"].get("revenue")
-    if isinstance(revenue_report, dict) and revenue_report.get("status") == "idle":
-        warnings.append("Revenue channels are idle — no channel has executed yet.")
+    if (
+        "revenue" in active_asset_ids
+        and isinstance(revenue_report, dict)
+        and revenue_report.get("status") == "idle"
+    ):
+        warnings.append(
+            "Revenue is idle while real work is assigned to it."
+        )
 
     for proposal in brain.memory.proposals():
         if proposal.kind == "redesign" and proposal.status == "pending_approval":
             warnings.append(f"Pending redesign proposal: {proposal.rationale} ({proposal.id})")
 
-    for name, age_hours in find_stale_kpis(brain):
-        warnings.append(f"KPI '{name}' hasn't been updated in {age_hours:.1f}h")
+    # KPI age is diagnostic information, not automatically a current
+    # founder-facing problem. Historical experiments, retired goals and
+    # no-change metrics legitimately become old. Keep find_stale_kpis()
+    # available for explicit diagnostics without polluting live warnings.
 
     # Identity-conflict warning (2026-08-17, ONE BRAIN Root Implementation):
     # two already-real, persisted Opportunities later found to belong to

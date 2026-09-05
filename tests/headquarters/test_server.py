@@ -450,3 +450,31 @@ def test_health_returns_503_when_core_state_cannot_be_read(tmp_path, monkeypatch
     assert data["checks"]["memory"]["status"] == "error"
     assert data["checks"]["memory"]["error_type"] == "OSError"
     assert data["checks"]["ledger"]["status"] == "ok"
+
+
+
+def test_api_state_kpis_show_only_active_goal_scoped_metrics(tmp_path):
+    brain = _isolated_brain(tmp_path)
+
+    active = brain.add_goal("Active KPI goal")
+    retired = brain.add_goal("Retired KPI goal")
+    retired.status = "paused"
+    brain.memory.save_goal(retired)
+
+    active_name = f"revenue_{active.id}"
+    retired_name = f"revenue_{retired.id}"
+
+    brain.kpis.record(active_name, 11.0)
+    brain.kpis.record(retired_name, 22.0)
+    brain.kpis.record("legacy_global_metric", 33.0)
+
+    client = TestClient(create_app(brain))
+    response = client.get("/api/state")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["kpis"] == {
+        active_name: 11.0,
+    }
