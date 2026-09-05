@@ -114,3 +114,135 @@ def test_source_bound(tmp_path):
             "ugc",
             "Check B",
         )
+
+
+def test_discovery_progress_round_trip(tmp_path):
+    store = ResearchMissionStore(
+        tmp_path / "research_missions.json"
+    )
+
+    mission = ResearchMission(
+        goal_id="goal-ed",
+        objective="Broad digital research",
+        categories=["ugc"],
+    )
+    store.save_mission(mission)
+
+    progress = store.ensure_discovery(
+        mission.id,
+        "ugc",
+        "brave",
+        "best ugc products to sell 2026",
+    )
+
+    restored = store.get_discovery(progress.id)
+
+    assert restored.mission_id == mission.id
+    assert restored.category == "ugc"
+    assert restored.provider == "brave"
+    assert restored.query == "best ugc products to sell 2026"
+    assert restored.status == "pending"
+    assert restored.attempts == 0
+    assert restored.source_ids == []
+
+
+def test_discovery_progress_is_idempotent_by_mission_category_provider(
+    tmp_path,
+):
+    store = ResearchMissionStore(
+        tmp_path / "research_missions.json"
+    )
+
+    mission = ResearchMission(
+        goal_id="goal-ed",
+        objective="Broad digital research",
+    )
+    store.save_mission(mission)
+
+    first = store.ensure_discovery(
+        mission.id,
+        "ugc",
+        "brave",
+        "best ugc products to sell 2026",
+    )
+
+    second = store.ensure_discovery(
+        mission.id,
+        "ugc",
+        "brave",
+        "best ugc products to sell 2026",
+    )
+
+    assert first.id == second.id
+    assert len(store.discoveries(mission.id)) == 1
+
+
+def test_discovery_progress_rejects_query_drift(
+    tmp_path,
+):
+    store = ResearchMissionStore(
+        tmp_path / "research_missions.json"
+    )
+
+    mission = ResearchMission(
+        goal_id="goal-ed",
+        objective="Broad digital research",
+    )
+    store.save_mission(mission)
+
+    store.ensure_discovery(
+        mission.id,
+        "ugc",
+        "brave",
+        "best ugc products to sell 2026",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="query mismatch",
+    ):
+        store.ensure_discovery(
+            mission.id,
+            "ugc",
+            "brave",
+            "a silently different query",
+        )
+
+
+def test_discovery_progress_requires_real_mission(
+    tmp_path,
+):
+    store = ResearchMissionStore(
+        tmp_path / "research_missions.json"
+    )
+
+    with pytest.raises(
+        KeyError,
+        match="no such research mission",
+    ):
+        store.ensure_discovery(
+            "missing-mission",
+            "ugc",
+            "brave",
+            "best ugc products to sell 2026",
+        )
+
+
+def test_mission_discovery_attempt_bound_must_be_positive(
+    tmp_path,
+):
+    store = ResearchMissionStore(
+        tmp_path / "research_missions.json"
+    )
+
+    mission = ResearchMission(
+        goal_id="goal-ed",
+        objective="Broad digital research",
+        max_discovery_attempts_per_provider=0,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="max_discovery_attempts_per_provider",
+    ):
+        store.save_mission(mission)

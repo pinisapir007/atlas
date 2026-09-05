@@ -49,6 +49,18 @@ SOURCE_TERMINAL_STATUSES = {
 }
 
 
+DISCOVERY_STATUSES = {
+    "pending",
+    "completed",
+    "failed_exhausted",
+}
+
+DISCOVERY_TERMINAL_STATUSES = {
+    "completed",
+    "failed_exhausted",
+}
+
+
 @dataclass
 class ResearchMission:
     """One durable broad-research objective."""
@@ -61,6 +73,11 @@ class ResearchMission:
     # about how much research is scientifically or commercially sufficient.
     max_sources: int = 24
     max_attempts_per_source: int = 2
+
+    # Bounded source-discovery retries for one category/provider pair.
+    # Separate from max_attempts_per_source because discovering a URL and
+    # processing that URL are different lifecycle operations.
+    max_discovery_attempts_per_provider: int = 2
 
     # False while the orchestrator may still discover/add further sources.
     source_discovery_complete: bool = False
@@ -115,8 +132,42 @@ class ResearchMissionSource:
     updated_at: str = field(default_factory=now)
 
 
+@dataclass
+class ResearchMissionDiscovery:
+    """Durable progress for one category/provider discovery unit.
+
+    This is coordination state only. It is not evidence and never grants
+    permission to browse/read a source.
+
+    Identity is the exact tuple:
+        mission_id + category + provider
+
+    The query is persisted so a later tick/restart cannot silently change
+    what an already-started discovery unit meant.
+    """
+
+    mission_id: str
+    category: str
+    provider: str
+    query: str
+
+    status: str = "pending"
+    attempts: int = 0
+
+    # Exact ResearchMissionSource ids enqueued by this discovery unit.
+    source_ids: list[str] = field(default_factory=list)
+
+    last_error: str = ""
+
+    id: str = field(
+        default_factory=lambda: new_id("research-discovery")
+    )
+    created_at: str = field(default_factory=now)
+    updated_at: str = field(default_factory=now)
+
+
 class ResearchMissionStore:
-    """Durable store for missions and their concrete source queue."""
+    """Durable store for missions, discovery progress, and source queue."""
 
     def __init__(
         self,
@@ -136,10 +187,12 @@ class ResearchMissionStore:
             return {
                 "missions": {},
                 "sources": {},
+                "discovery": {},
             }
 
         data.setdefault("missions", {})
         data.setdefault("sources", {})
+        data.setdefault("discovery", {})
         return data
 
     def save_mission(
@@ -151,6 +204,7 @@ class ResearchMissionStore:
         def mutate(data):
             data.setdefault("missions", {})
             data.setdefault("sources", {})
+            data.setdefault("discovery", {})
             data["missions"][mission.id] = asdict(mission)
 
         update_store(
@@ -197,6 +251,7 @@ class ResearchMissionStore:
         def mutate(data):
             data.setdefault("missions", {})
             data.setdefault("sources", {})
+            data.setdefault("discovery", {})
             data["sources"][source.id] = asdict(source)
 
         update_store(
@@ -245,6 +300,130 @@ class ResearchMissionStore:
             for source in self.sources(mission_id)
             if source.status == "pending"
         ]
+
+    def save_discovery(
+        self,
+        discovery: ResearchMissionDiscovery,
+    ) -> None:
+        self._validate_discovery(discovery)
+
+        # Discovery progress may never reference a missing mission.
+        self.get_mission(discovery.mission_id)
+
+        def mutate(data):
+            data.setdefault("missions", {})
+            data.setdefault("sources", {})
+            data.setdefault("discovery", {})
+            data["discovery"][discovery.id] = asdict(discovery)
+
+        update_store(
+            self._store,
+            self._read(),
+            mutate,
+        )
+
+    def get_discovery(
+        self,
+        discovery_id: str,
+    ) -> ResearchMissionDiscovery:
+        raw = self._read()["discovery"].get(discovery_id)
+
+        if raw is None:
+            raise KeyError(
+                f"no such research mission discovery: {discovery_id}"
+            )
+
+        return ResearchMissionDiscovery(**raw)
+
+    def discoveries(
+        self,
+        mission_id: str | None = None,
+    ) -> list[ResearchMissionDiscovery]:
+        result = [
+            ResearchMissionDiscovery(**raw)
+            for raw in self._read()["discovery"].values()
+        ]
+
+        if mission_id is None:
+            return result
+
+        return [
+            discovery
+            for discovery in result
+            if discovery.mission_id == mission_id
+        ]
+
+    def discovery_for(
+        self,
+        mission_id: str,
+        category: str,
+        provider: str,
+    ) -> ResearchMissionDiscovery | None:
+        normalized_category = category.strip()
+        normalized_provider = provider.strip()
+
+        for discovery in self.discoveries(mission_id):
+            if (
+                discovery.category == normalized_category
+                and discovery.provider == normalized_provider
+            ):
+                return discovery
+
+        return None
+
+    def ensure_discovery(
+        self,
+        mission_id: str,
+        category: str,
+        provider: str,
+        query: str,
+    ) -> ResearchMissionDiscovery:
+        """Idempotently ensure one durable discovery unit.
+
+        Exact identity is mission + category + provider. If an existing
+        unit has a different query, fail loudly rather than silently
+        redefining durable work already in progress.
+        """
+        self.get_mission(mission_id)
+
+        normalized_category = category.strip()
+        normalized_provider = provider.strip()
+        normalized_query = query.strip()
+
+        if not normalized_category:
+            raise ValueError("discovery category must not be empty")
+
+        if not normalized_provider:
+            raise ValueError("discovery provider must not be empty")
+
+        if not normalized_query:
+            raise ValueError("discovery query must not be empty")
+
+        existing = self.discovery_for(
+            mission_id,
+            normalized_category,
+            normalized_provider,
+        )
+
+        if existing is not None:
+            if existing.query != normalized_query:
+                raise ValueError(
+                    "existing research discovery query mismatch for "
+                    f"mission={mission_id!r}, "
+                    f"category={normalized_category!r}, "
+                    f"provider={normalized_provider!r}"
+                )
+
+            return existing
+
+        discovery = ResearchMissionDiscovery(
+            mission_id=mission_id,
+            category=normalized_category,
+            provider=normalized_provider,
+            query=normalized_query,
+        )
+        self.save_discovery(discovery)
+        return discovery
 
     def add_source(
         self,
@@ -328,6 +507,47 @@ class ResearchMissionStore:
             raise ValueError(
                 "ResearchMission.max_attempts_per_source "
                 "must be >= 1"
+            )
+
+        if mission.max_discovery_attempts_per_provider < 1:
+            raise ValueError(
+                "ResearchMission.max_discovery_attempts_per_provider "
+                "must be >= 1"
+            )
+
+    @staticmethod
+    def _validate_discovery(
+        discovery: ResearchMissionDiscovery,
+    ) -> None:
+        if not discovery.mission_id.strip():
+            raise ValueError(
+                "ResearchMissionDiscovery.mission_id must not be empty"
+            )
+
+        if not discovery.category.strip():
+            raise ValueError(
+                "ResearchMissionDiscovery.category must not be empty"
+            )
+
+        if not discovery.provider.strip():
+            raise ValueError(
+                "ResearchMissionDiscovery.provider must not be empty"
+            )
+
+        if not discovery.query.strip():
+            raise ValueError(
+                "ResearchMissionDiscovery.query must not be empty"
+            )
+
+        if discovery.status not in DISCOVERY_STATUSES:
+            raise ValueError(
+                f"invalid ResearchMissionDiscovery.status: "
+                f"{discovery.status!r}"
+            )
+
+        if discovery.attempts < 0:
+            raise ValueError(
+                "ResearchMissionDiscovery.attempts must be >= 0"
             )
 
     @staticmethod
