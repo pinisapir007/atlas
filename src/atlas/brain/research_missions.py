@@ -100,6 +100,12 @@ class ResearchMissionSource:
     # Finding ids created by the existing evidence pipeline.
     finding_ids: list[str] = field(default_factory=list)
 
+    # Optional durable correlation to an asynchronous Task. Generic
+    # Browser/Document/PDF/Image/Audio/Video sources are processed
+    # synchronously and leave this empty. YouTube uses the existing
+    # video_research Task lifecycle and stores that exact Task id here.
+    task_id: str = ""
+
     last_error: str = ""
 
     id: str = field(
