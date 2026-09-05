@@ -43,6 +43,7 @@ from atlas.brain.prioritizer import Prioritizer, SimplePrioritizer
 from atlas.brain.reasoning_advance import advance_opportunity_comparisons
 from atlas.brain.reporter import Reporter
 from atlas.brain.research_mission_advance import advance_research_missions
+from atlas.brain.research_mission_source_discovery import advance_research_mission_source_discovery
 from atlas.brain.research_mission_source_advance import advance_research_mission_sources
 from atlas.brain.research_mission_youtube_advance import advance_research_mission_youtube
 from atlas.brain.research_missions import ResearchMissionStore
@@ -253,15 +254,20 @@ class CEOBrain:
         # Ordering is deliberate:
         # 1. Monitor above reconciles any video_research Task that finished
         #    during the previous dispatch lifecycle.
-        # 2. Generic concrete sources may create durable Findings.
-        # 3. YouTube reconciles those normal Task results or creates at most
+        # 2. Source discovery may enqueue at most one bounded real source
+        #    discovery result from the durable mission frontier.
+        # 3. Generic concrete sources may create durable Findings.
+        # 4. YouTube reconciles those normal Task results or creates at most
         #    one existing video_research Task for a pending YouTube source.
-        # 4. Lifecycle closure runs last so a Mission cannot close before
+        # 5. Lifecycle closure runs last so a Mission cannot close before
         #    every source had this tick's opportunity to advance.
         #
         # The bridges themselves own their feature gates. With
         # ATLAS_RESEARCH_MISSION_ENABLED unset this entire sequence is an
         # exact no-op and does not create the ResearchMissionStore file.
+        advance_research_mission_source_discovery(
+            self.research_missions,
+        )
         advance_research_mission_sources(
             self.research_missions,
             self.knowledge,
