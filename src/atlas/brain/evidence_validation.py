@@ -30,6 +30,13 @@ from atlas.integrations.base import AIProvider, PageObservation
 
 MIN_TEXT_LENGTH = 50  # a real, editable minimum -- an empty/near-empty read can never be usable evidence, regardless of task
 
+# AI task-relevance must remain bounded, but a long structured source such
+# as a PDF book must not be judged only from its first few thousand
+# characters. When source-native text_segments exist, build one bounded,
+# deterministic sample spread across the whole source.
+MAX_RELEVANCE_TEXT_CHARS = 4000
+MAX_RELEVANCE_SEGMENTS = 7
+
 
 @dataclass
 class EvidenceQualityResult:
@@ -44,6 +51,78 @@ class EvidenceQualityResult:
     text_length: int
     ai_relevant: bool | None = None
     ai_reasoning: str = ""
+
+
+def _task_relevance_sample(
+    observation: PageObservation,
+    full_text: str,
+) -> str:
+    """Return one bounded but source-representative relevance sample.
+
+    Unsegmented sources preserve the historical prefix behavior.
+
+    Structured sources (currently PDFs with real page segments) are sampled
+    deterministically across beginning, middle, and end. This prevents an
+    introductory page from deciding the relevance of an entire book while
+    keeping the AI relevance call strictly bounded.
+
+    This is only the source-level relevance gate. Atomic extraction still
+    runs independently against each real segment and exact-quote verification
+    remains required before any Finding is persisted.
+    """
+    segments = [
+        segment
+        for segment in observation.text_segments
+        if (segment.text or "").strip()
+    ]
+
+    if not segments:
+        return full_text[:MAX_RELEVANCE_TEXT_CHARS]
+
+    if len(segments) <= MAX_RELEVANCE_SEGMENTS:
+        selected = segments
+    else:
+        last = len(segments) - 1
+        indices = [
+            (i * last) // (MAX_RELEVANCE_SEGMENTS - 1)
+            for i in range(MAX_RELEVANCE_SEGMENTS)
+        ]
+
+        # Defensive stable dedupe. For len(segments) >
+        # MAX_RELEVANCE_SEGMENTS these should already be unique.
+        seen = set()
+        selected = []
+
+        for index in indices:
+            if index in seen:
+                continue
+            seen.add(index)
+            selected.append(segments[index])
+
+    # Reserve a small amount for page/segment locator labels, then give every
+    # selected real segment a fair share so later pages cannot be truncated
+    # away by a long introduction.
+    per_segment = max(
+        1,
+        (MAX_RELEVANCE_TEXT_CHARS // len(selected)) - 40,
+    )
+
+    blocks = []
+
+    for segment in selected:
+        locator = (segment.locator_prefix or "segment").strip()
+        snippet = (segment.text or "").strip()[:per_segment]
+
+        if not snippet:
+            continue
+
+        blocks.append(
+            f"[{locator}]\n{snippet}"
+        )
+
+    sample = "\n\n".join(blocks)
+
+    return sample[:MAX_RELEVANCE_TEXT_CHARS]
 
 
 def assess_observation_quality(
@@ -71,9 +150,14 @@ def assess_observation_quality(
         )
 
     provider = ai_provider if ai_provider is not None else get_ai_provider()
+    relevance_sample = _task_relevance_sample(
+        observation,
+        text,
+    )
     prompt = (
         f"A real research task needs to be answered: {task_description}\n\n"
-        f"Here is real text actually read from a real source:\n{text[:4000]}\n\n"
+        f"Here is a bounded, real sample actually read from the real source:\n"
+        f"{relevance_sample}\n\n"
         "Does this text genuinely address the task -- not merely contain related words, but actually "
         "answer it or provide real evidence toward it?"
     )
