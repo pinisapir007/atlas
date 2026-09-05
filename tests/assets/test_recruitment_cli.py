@@ -1,6 +1,27 @@
 from atlas.cli import main
 
 
+def _intake_test_demand(capsys):
+    main(
+        [
+            "recruitment",
+            "demand",
+            "add",
+            "--industry",
+            "warehouse_logistics",
+            "--employer-name",
+            "Test Distribution Center",
+            "--role",
+            "Warehouse worker",
+            "--headcount",
+            "1",
+            "--rate",
+            "28.0",
+        ]
+    )
+    capsys.readouterr()
+
+
 def test_full_intake_and_approval_flow(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
 
@@ -61,7 +82,8 @@ def test_full_intake_and_approval_flow(tmp_path, monkeypatch, capsys):
 
 def test_approve_outreach_wrong_stage_exits_nonzero(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    main(["run", "recruitment_workforce"])  # seeds + creates a "discovered" opportunity
+    _intake_test_demand(capsys)
+    main(["run", "recruitment_workforce"])  # real intake creates a discovered opportunity
     capsys.readouterr()
     main(["recruitment", "opportunities"])
     opp_id = capsys.readouterr().out.strip().split("\t")[0]
@@ -74,6 +96,7 @@ def test_approve_outreach_wrong_stage_exits_nonzero(tmp_path, monkeypatch, capsy
 
 def test_approve_commitment_wrong_stage_exits_nonzero(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
+    _intake_test_demand(capsys)
     main(["run", "recruitment_workforce"])
     capsys.readouterr()
     main(["recruitment", "opportunities"])
@@ -87,6 +110,7 @@ def test_approve_commitment_wrong_stage_exits_nonzero(tmp_path, monkeypatch, cap
 
 def test_mark_lost(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
+    _intake_test_demand(capsys)
     main(["run", "recruitment_workforce"])
     capsys.readouterr()
     main(["recruitment", "opportunities"])

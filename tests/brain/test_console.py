@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.console import (
     build_briefing,
     build_console_view,
@@ -21,6 +22,7 @@ from atlas.core.store import JSONStore
 def _brain(tmp_path):
     return CEOBrain(
         memory=BrainMemory(tmp_path / "brain.json"),
+        intelligence_index=IntelligenceIndex(tmp_path / ".atlas" / "intelligence_index.json"),
         registry=Registry(store=JSONStore(tmp_path / "state.json")),
     )
 
@@ -167,6 +169,7 @@ def test_find_warnings_detects_a_pinned_identity_conflict(tmp_path):
     opportunities = OpportunityStore(tmp_path / "opportunities.json")
     brain = CEOBrain(
         memory=BrainMemory(tmp_path / "brain.json"),
+        intelligence_index=IntelligenceIndex(tmp_path / ".atlas" / "intelligence_index.json"),
         registry=Registry(store=JSONStore(tmp_path / "state.json")),
         knowledge=knowledge,
         opportunities=opportunities,

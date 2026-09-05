@@ -21,6 +21,7 @@ from atlas.brain.publishing_gateway_advance import advance_publishing_gateway
 from atlas.brain.improvement import propose_improvements
 from atlas.brain.intake import absorb_opportunities
 from atlas.brain.intelligence_cycle_advance import advance_intelligence_cycle
+from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.investigation_advance import advance_investigations
 from atlas.brain.investigations import InvestigationStore
 from atlas.brain.knowledge import KnowledgeBase
@@ -88,6 +89,7 @@ class CEOBrain:
         opportunities: OpportunityStore | None = None,
         marketplace_catalog: MarketplaceCatalogStore | None = None,
         investigations: InvestigationStore | None = None,
+        intelligence_index: IntelligenceIndex | None = None,
     ):
         self.memory = memory if memory is not None else BrainMemory()
         # knowledge must exist before the default Registry is built, below --
@@ -102,6 +104,11 @@ class CEOBrain:
         # Registry is never silently mutated -- the caller configured it on
         # purpose, e.g. every existing test in test_ceo.py).
         self.knowledge = knowledge if knowledge is not None else KnowledgeBase()
+        self.intelligence_index = (
+            intelligence_index
+            if intelligence_index is not None
+            else IntelligenceIndex()
+        )
         self.registry = (
             registry
             if registry is not None
@@ -323,7 +330,12 @@ class CEOBrain:
         # (Intelligence/Research/Resource/Opportunity/Time/Execution
         # Planning) to the automatic tick loop. Read-only: does not create
         # or dispatch anything. See intelligence_cycle_advance.py.
-        self.last_intelligence_workflow_results = advance_intelligence_cycle(self.memory, self.knowledge, self.kpis)
+        self.last_intelligence_workflow_results = advance_intelligence_cycle(
+            self.memory,
+            self.knowledge,
+            self.kpis,
+            self.intelligence_index,
+        )
 
         for continuation_task in advance_recruitment_pipeline(self.memory.tasks(), self.registry, self.memory):
             self.memory.save_task(continuation_task)

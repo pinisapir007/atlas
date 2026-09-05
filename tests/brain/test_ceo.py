@@ -1,5 +1,6 @@
 from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.decisions import DecisionLog
 from atlas.brain.investigations import InvestigationStore
 from atlas.brain.knowledge import KnowledgeBase
@@ -17,10 +18,43 @@ from atlas.orchestrator.orchestrator import start_execution
 from atlas.orchestrator.registry import ExecutionPlanRegistry
 
 
-def _brain(tmp_path):
+def _brain(tmp_path, *, allow_demo_assets=False):
+    registry = Registry(store=JSONStore(tmp_path / "state.json"))
+
+    if allow_demo_assets:
+        from atlas.assets.affiliate_department.agent import AffiliateDepartmentAgent
+        from atlas.assets.affiliate_intelligence.agent import AffiliateIntelligenceAgent
+        from atlas.assets.recruitment_workforce.agent import RecruitmentAgent
+        from atlas.assets.recruitment_workforce.store import WorkforceStore
+
+        registry = Registry(
+            store=JSONStore(tmp_path / "state.json"),
+            instances={
+                "recruitment_workforce": RecruitmentAgent(
+                    store=WorkforceStore(
+                        tmp_path / ".atlas" / "recruitment_workforce.json"
+                    ),
+                    allow_demo_seed=True,
+                ),
+                "affiliate_department": AffiliateDepartmentAgent(
+                    store=AffiliateStore(
+                        tmp_path / ".atlas" / "affiliate_department.json"
+                    ),
+                    allow_placeholder_discovery=True,
+                ),
+                "affiliate_intelligence": AffiliateIntelligenceAgent(
+                    store=AffiliateStore(
+                        tmp_path / ".atlas" / "affiliate_intelligence.json"
+                    ),
+                    allow_placeholder_discovery=True,
+                ),
+            },
+        )
+
     return CEOBrain(
         memory=BrainMemory(tmp_path / "brain.json"),
-        registry=Registry(store=JSONStore(tmp_path / "state.json")),
+        intelligence_index=IntelligenceIndex(tmp_path / ".atlas" / "intelligence_index.json"),
+        registry=registry,
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
         decisions=DecisionLog(tmp_path / "decisions.json"),
         ledger=Ledger(tmp_path / "ledger.json"),
@@ -46,6 +80,7 @@ def test_default_registry_wires_research_discovery_to_this_brains_own_knowledge(
     kb = KnowledgeBase(tmp_path / "knowledge.json")
     brain = CEOBrain(
         memory=BrainMemory(tmp_path / "brain.json"),
+        intelligence_index=IntelligenceIndex(tmp_path / ".atlas" / "intelligence_index.json"),
         knowledge=kb,
         decisions=DecisionLog(tmp_path / "decisions.json"),
         ledger=Ledger(tmp_path / "ledger.json"),
@@ -277,7 +312,7 @@ def test_recruitment_pipeline_advances_autonomously_then_stops_at_founder_gate(t
     from atlas.assets.recruitment_workforce.store import WorkforceStore
 
     monkeypatch.chdir(tmp_path)
-    brain = _brain(tmp_path)
+    brain = _brain(tmp_path, allow_demo_assets=True)
     goal = brain.add_goal("Discover and monetize revenue opportunities", priority=1)
     research_task = Task(
         goal_id=goal.id,
@@ -307,7 +342,7 @@ def test_recruitment_pipeline_advances_autonomously_then_stops_at_founder_gate(t
 
 def test_affiliate_pipeline_advances_autonomously_then_stops_at_founder_approval(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    brain = _brain(tmp_path)
+    brain = _brain(tmp_path, allow_demo_assets=True)
     goal = brain.add_goal("Grow affiliate revenue")
     seed_task = Task(
         goal_id=goal.id,
@@ -340,7 +375,7 @@ def test_affiliate_pipeline_advances_autonomously_then_stops_at_founder_approval
 
 def test_affiliate_intelligence_ranks_and_asks_founder_to_choose(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    brain = _brain(tmp_path)
+    brain = _brain(tmp_path, allow_demo_assets=True)
     goal = brain.add_goal("Find affiliate opportunities")
     seed_task = Task(
         goal_id=goal.id,
@@ -370,7 +405,7 @@ def test_affiliate_intelligence_ranks_and_asks_founder_to_choose(tmp_path, monke
 
 def test_full_affiliate_chain_from_discovery_to_queued_publish_package(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    brain = _brain(tmp_path)
+    brain = _brain(tmp_path, allow_demo_assets=True)
     goal = brain.add_goal("Find and market an affiliate opportunity")
     seed_task = Task(
         goal_id=goal.id,
@@ -850,6 +885,7 @@ def test_default_registry_wires_video_research_to_this_brains_own_knowledge(tmp_
     kb = KnowledgeBase(tmp_path / "knowledge.json")
     brain = CEOBrain(
         memory=BrainMemory(tmp_path / "brain.json"),
+        intelligence_index=IntelligenceIndex(tmp_path / ".atlas" / "intelligence_index.json"),
         knowledge=kb,
         decisions=DecisionLog(tmp_path / "decisions.json"),
         ledger=Ledger(tmp_path / "ledger.json"),

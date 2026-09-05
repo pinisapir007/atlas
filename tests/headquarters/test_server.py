@@ -1,6 +1,7 @@
 from starlette.testclient import TestClient
 
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.decisions import DecisionLog
 from atlas.brain.investigations import InvestigationStore
@@ -54,6 +55,7 @@ def _isolated_brain(tmp_path) -> CEOBrain:
     real bug it was originally caught fixing)."""
     return CEOBrain(
         memory=BrainMemory(store=_FakeStore()),
+        intelligence_index=IntelligenceIndex(tmp_path / ".atlas" / "intelligence_index.json"),
         registry=Registry(store=_FakeAssetStore()),
         knowledge=KnowledgeBase(store=_FakeStore()),
         decisions=DecisionLog(store=_FakeStore()),

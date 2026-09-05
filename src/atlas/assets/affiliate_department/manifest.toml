@@ -1,7 +1,7 @@
 id = "affiliate_department"
 name = "Affiliate Department"
 kind = "operational_agent"
-description = "Discovers, evaluates, and plans affiliate marketing opportunities using placeholder data only; stops at founder approval before any real execution."
+description = "Evaluates and plans explicitly supplied affiliate opportunities; production startup never fabricates placeholder products."
 owner = "atlas"
 tags = ["affiliate", "revenue"]
 entrypoint = "atlas.assets.affiliate_department.agent:AffiliateDepartmentAgent"

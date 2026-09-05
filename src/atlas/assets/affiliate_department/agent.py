@@ -46,8 +46,14 @@ class AffiliateDepartmentAgent:
     asset in the registry.
     """
 
-    def __init__(self, store: AffiliateStore | None = None) -> None:
+    def __init__(
+        self,
+        store: AffiliateStore | None = None,
+        *,
+        allow_placeholder_discovery: bool = False,
+    ) -> None:
         self._store = store if store is not None else AffiliateStore()
+        self._allow_placeholder_discovery = allow_placeholder_discovery
 
     def run(self, task=None, **kwargs) -> dict:
         # Delegator's unmatched-category fallback can hand this agent a task
@@ -61,7 +67,8 @@ class AffiliateDepartmentAgent:
 
         opportunities = self._store.opportunities()
         if not opportunities:
-            self._discover(task)
+            if self._allow_placeholder_discovery:
+                self._discover(task)
         elif all(o.stage == "discovered" for o in opportunities):
             self._evaluate()
         else:

@@ -5,7 +5,22 @@ from atlas.brain.models import Task
 
 
 def _agent(tmp_path):
-    return AffiliateIntelligenceAgent(store=AffiliateStore(tmp_path / "affiliate_intelligence.json"))
+    return AffiliateIntelligenceAgent(
+        store=AffiliateStore(tmp_path / "affiliate_intelligence.json"),
+        allow_placeholder_discovery=True,
+    )
+
+
+def test_default_run_never_discovers_placeholder_opportunities(tmp_path, monkeypatch):
+    monkeypatch.delenv("ATLAS_OPPORTUNITY_DISCOVERY_V1", raising=False)
+    agent = AffiliateIntelligenceAgent(
+        store=AffiliateStore(tmp_path / "affiliate_intelligence.json")
+    )
+
+    result = agent.run()
+
+    assert result["opportunities"] == []
+    assert sum(result["by_stage"].values()) == 0
 
 
 def test_discovery_agent_creates_bare_opportunities_with_no_evaluation_data():

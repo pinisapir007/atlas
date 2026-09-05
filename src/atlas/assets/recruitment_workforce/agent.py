@@ -38,12 +38,19 @@ class RecruitmentAgent:
     other asset in the registry.
     """
 
-    def __init__(self, store: WorkforceStore | None = None) -> None:
+    def __init__(
+        self,
+        store: WorkforceStore | None = None,
+        *,
+        allow_demo_seed: bool = False,
+    ) -> None:
         self._store = store if store is not None else WorkforceStore()
+        self._allow_demo_seed = allow_demo_seed
 
     def run(self, task=None, **kwargs) -> dict:
         self._advance_all()
-        self._ensure_seed_data()
+        if self._allow_demo_seed:
+            self._ensure_seed_data()
         self._create_missing_opportunities(task)
         return {"status": "done", **self._summarize()}
 

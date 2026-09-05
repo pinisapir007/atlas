@@ -14,6 +14,7 @@ disk before CEOBrain.tick() ever runs).
 
 from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.decisions import DecisionLog
 from atlas.brain.investigation_advance import advance_investigations
 from atlas.brain.investigations import InvestigationStore
@@ -72,6 +73,7 @@ def _real_brain(tmp_path) -> CEOBrain:
     already established, extended with the two new ONE BRAIN stores."""
     return CEOBrain(
         memory=BrainMemory(tmp_path / "brain.json"),
+        intelligence_index=IntelligenceIndex(tmp_path / ".atlas" / "intelligence_index.json"),
         registry=Registry(store=JSONStore(tmp_path / "state.json")),
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
         decisions=DecisionLog(tmp_path / "decisions.json"),

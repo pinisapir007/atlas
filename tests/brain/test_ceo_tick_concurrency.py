@@ -3,6 +3,7 @@ import threading
 
 from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.decisions import DecisionLog
 from atlas.brain.investigations import InvestigationStore
 from atlas.brain.knowledge import KnowledgeBase
@@ -23,6 +24,7 @@ _UNLIKELY_REAL_PID = 999_999_999
 def _brain(tmp_path):
     return CEOBrain(
         memory=BrainMemory(tmp_path / "brain.json"),
+        intelligence_index=IntelligenceIndex(tmp_path / ".atlas" / "intelligence_index.json"),
         registry=Registry(store=JSONStore(tmp_path / "state.json")),
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),
         decisions=DecisionLog(tmp_path / "decisions.json"),

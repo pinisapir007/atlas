@@ -1,5 +1,6 @@
 from atlas.assets.affiliate_department.store import AffiliateStore
 from atlas.brain.ceo import CEOBrain
+from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.conversation_memory import ConversationMemory
 from atlas.brain.decisions import DecisionLog
 from atlas.brain.investigations import InvestigationStore
@@ -20,6 +21,7 @@ from atlas.repl import dispatch, run_repl
 def _brain(tmp_path):
     return CEOBrain(
         memory=BrainMemory(tmp_path / "brain.json"),
+        intelligence_index=IntelligenceIndex(tmp_path / ".atlas" / "intelligence_index.json"),
         conversations=ConversationMemory(tmp_path / "conversations.json"),
         registry=Registry(store=JSONStore(tmp_path / "state.json")),
         knowledge=KnowledgeBase(tmp_path / "knowledge.json"),

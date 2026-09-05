@@ -42,11 +42,13 @@ class AffiliateIntelligenceAgent:
         discovery: DiscoveryAgent | None = None,
         research: ResearchAgent | None = None,
         ranking: RankingAgent | None = None,
+        allow_placeholder_discovery: bool = False,
     ) -> None:
         self._store = store if store is not None else AffiliateStore(DEFAULT_STORE_PATH)
         self._discovery = discovery if discovery is not None else DiscoveryAgent()
         self._research = research if research is not None else ResearchAgent()
         self._ranking = ranking if ranking is not None else RankingAgent()
+        self._allow_placeholder_discovery = allow_placeholder_discovery
 
     def run(self, task=None, **kwargs) -> dict:
         if task is not None and getattr(task, "category", None) not in (None, "affiliate_intelligence"):
@@ -66,9 +68,15 @@ class AffiliateIntelligenceAgent:
 
         opportunities = self._store.opportunities()
         if not opportunities:
-            if not _opportunity_discovery_v1_enabled():
+            if (
+                self._allow_placeholder_discovery
+                and not _opportunity_discovery_v1_enabled()
+            ):
                 self._run_discovery(task)
-            # else: real, evidence-driven discovery is live (see
+            # Production zero-argument construction never fabricates
+            # placeholder opportunities. Explicit test/demo construction
+            # may opt in; real evidence-driven discovery takes precedence.
+            # When real discovery is live (see
             # atlas.brain.opportunity_discovery_advance) -- never fabricate
             # placeholder candidates here. _summarize() reports "No real
             # opportunity found." explicitly instead of silently doing

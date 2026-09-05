@@ -6,7 +6,22 @@ from atlas.brain.models import Task
 
 
 def _agent(tmp_path):
-    return RecruitmentAgent(store=WorkforceStore(tmp_path / "recruitment_workforce.json"))
+    return RecruitmentAgent(
+        store=WorkforceStore(tmp_path / "recruitment_workforce.json"),
+        allow_demo_seed=True,
+    )
+
+
+def test_default_run_never_seeds_demo_data(tmp_path):
+    store = WorkforceStore(tmp_path / "recruitment_workforce.json")
+    agent = RecruitmentAgent(store=store)
+
+    result = agent.run()
+
+    assert result["opportunities"] == []
+    assert store.demands() == []
+    assert store.suppliers() == []
+    assert store.candidates() == []
 
 
 def test_first_run_seeds_and_creates_a_discovered_opportunity(tmp_path):

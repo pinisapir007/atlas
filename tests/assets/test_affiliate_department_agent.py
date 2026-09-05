@@ -6,7 +6,21 @@ from atlas.brain.models import Task
 
 
 def _agent(tmp_path):
-    return AffiliateDepartmentAgent(store=AffiliateStore(tmp_path / "affiliate_department.json"))
+    return AffiliateDepartmentAgent(
+        store=AffiliateStore(tmp_path / "affiliate_department.json"),
+        allow_placeholder_discovery=True,
+    )
+
+
+def test_default_run_never_discovers_placeholder_opportunities(tmp_path):
+    agent = AffiliateDepartmentAgent(
+        store=AffiliateStore(tmp_path / "affiliate_department.json")
+    )
+
+    result = agent.run()
+
+    assert result["opportunities"] == []
+    assert sum(result["by_stage"].values()) == 0
 
 
 def test_first_run_discovers_three_placeholder_opportunities(tmp_path):

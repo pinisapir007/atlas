@@ -44,6 +44,7 @@ out of scope until the connection itself is proven to run end-to-end.
 """
 
 from atlas.brain.intelligence_workflow import IntelligenceWorkflowResult, run_intelligence_workflow
+from atlas.brain.intelligence_index import IntelligenceIndex
 from atlas.brain.knowledge import KnowledgeBase
 from atlas.brain.kpi import KPIRegistry
 from atlas.brain.memory import BrainMemory
@@ -61,6 +62,7 @@ def advance_intelligence_cycle(
     memory: BrainMemory,
     knowledge: KnowledgeBase,
     kpis: KPIRegistry,
+    intelligence_index: IntelligenceIndex,
 ) -> list[IntelligenceWorkflowResult]:
     """Runs the real, unmodified 8-stage intelligence workflow for
     every real, active Goal the Decision Engine has already created
@@ -76,6 +78,13 @@ def advance_intelligence_cycle(
         if category is None:
             continue
         results.append(
-            run_intelligence_workflow(goal.description, category, knowledge=knowledge, memory=memory, kpis=kpis)
+            run_intelligence_workflow(
+                goal.description,
+                category,
+                knowledge=knowledge,
+                memory=memory,
+                kpis=kpis,
+                intelligence_index=intelligence_index,
+            )
         )
     return results
