@@ -274,6 +274,18 @@ def test_report_shows_reallocations_section(tmp_path, monkeypatch, capsys):
 
 def test_opportunities_ranks_categories_by_confidence_descending(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
+
+    # This test is about rank_by_confidence()'s evidence-breadth
+    # tie-break, not sub-second wall-clock timing. recency_score() uses
+    # datetime.now(), so findings created milliseconds apart can otherwise
+    # produce microscopically different raw scores and make this test flaky.
+    # Give every category the same recency component here; production
+    # confidence/ranking code remains completely untouched.
+    monkeypatch.setattr(
+        "atlas.brain.confidence.recency_score",
+        lambda category, knowledge, provider=None, subject=None: 1.0,
+    )
+
     # affiliate: 3 real sourced findings (source_corroboration + recency both
     # available). ugc: 1 unsourced finding (source_corroboration stays None,
     # since there's no evidence) — fewer factors available, so it must rank
