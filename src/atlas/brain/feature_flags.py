@@ -82,3 +82,17 @@ def pattern_hypothesis_enabled() -> bool:
     Goals, Decisions, campaigns, spending, publishing, or other actions.
     """
     return bool(os.environ.get("ATLAS_PATTERN_HYPOTHESIS_ENABLED"))
+
+
+def research_mission_enabled() -> bool:
+    """Whether durable Research Mission orchestration may advance.
+
+    Off by default.
+
+    Research Mission is orchestration only: enabling this flag does not
+    authorize publishing, spending, account changes, legal commitments,
+    or any other external action. Source access remains independently
+    constrained by the existing BrowserAllowlist/ResourceAllowlist and
+    each KnowledgeSourcePlugin's own fail-closed safety checks.
+    """
+    return bool(os.environ.get("ATLAS_RESEARCH_MISSION_ENABLED"))
